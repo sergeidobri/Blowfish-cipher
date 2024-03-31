@@ -1,13 +1,19 @@
+from itertools import cycle
 import struct
 
+
 class BlowCrypt:
-    __Pi_keys = ( # мантисса числа пи, представленного в шестнадцатиричной системе счисления (раундовые ключи)
+    """
+    Class of bytes array that can be encrypted and also decrypted using Blowfish algorithm.
+    To interact with it use ...
+    """
+    __Pi_keys = (  # the hexadecimal 4-bytes interpretations of Pi
         0x243f6a88, 0x85a308d3, 0x13198a2e, 0x03707344, 0xa4093822, 0x299f31d0,
         0x082efa98, 0xec4e6c89, 0x452821e6, 0x38d01377, 0xbe5466cf, 0x34e90c6c,
         0xc0ac29b7, 0xc97c50dd, 0x3f84d5b5, 0xb5470917, 0x9216d5d9, 0x8979fb1b
     )
     __S_boxes = (
-        ( #self.__S_boxes[0]
+        (  # self.__S_boxes[0]
             0xd1310ba6, 0x98dfb5ac, 0x2ffd72db, 0xd01adfb7, 0xb8e1afed, 0x6a267e96,
             0xba7c9045, 0xf12c7f99, 0x24a19947, 0xb3916cf7, 0x0801f2e2, 0x858efc16,
             0x636920d8, 0x71574e69, 0xa458fea3, 0xf4933d7e, 0x0d95748f, 0x728eb658,
@@ -52,7 +58,7 @@ class BlowCrypt:
             0xf296ec6b, 0x2a0dd915, 0xb6636521, 0xe7b9f9b6, 0xff34052e, 0xc5855664,
             0x53b02d5d, 0xa99f8fa1, 0x08ba4799, 0x6e85076a,
         ),
-        ( #self.__S_boxes[1]
+        (  # self.__S_boxes[1]
             0x4b7a70e9, 0xb5b32944, 0xdb75092e, 0xc4192623, 0xad6ea6b0, 0x49a7df7d,
             0x9cee60b8, 0x8fedb266, 0xecaa8c71, 0x699a17ff, 0x5664526c, 0xc2b19ee1,
             0x193602a5, 0x75094c29, 0xa0591340, 0xe4183a3e, 0x3f54989a, 0x5b429d65,
@@ -97,7 +103,7 @@ class BlowCrypt:
             0x675fda79, 0xe3674340, 0xc5c43465, 0x713e38d8, 0x3d28f89e, 0xf16dff20,
             0x153e21e7, 0x8fb03d4a, 0xe6e39f2b, 0xdb83adf7,
         ),
-        ( #self.__S_boxes[2]
+        (  # self.__S_boxes[2]
             0xe93d5a68, 0x948140f7, 0xf64c261c, 0x94692934, 0x411520f7, 0x7602d4f7,
             0xbcf46b2e, 0xd4a20068, 0xd4082471, 0x3320f46a, 0x43b7d4b7, 0x500061af,
             0x1e39f62e, 0x97244546, 0x14214f74, 0xbf8b8840, 0x4d95fc1d, 0x96b591af,
@@ -142,7 +148,7 @@ class BlowCrypt:
             0xa28514d9, 0x6c51133c, 0x6fd5c7e7, 0x56e14ec4, 0x362abfce, 0xddc6c837,
             0xd79a3234, 0x92638212, 0x670efa8e, 0x406000e0,
         ),
-        ( #self.__S_boxes[3]
+        (  # self.__S_boxes[3]
             0x3a39ce37, 0xd3faf5cf, 0xabc27737, 0x5ac52d1b, 0x5cb0679e, 0x4fa33742,
             0xd3822740, 0x99bc9bbe, 0xd5118e9d, 0xbf0f7315, 0xd62d1c7e, 0xc700c47b,
             0xb78c1b6b, 0x21a19045, 0xb26eb1be, 0x6a366eb4, 0x5748ab2f, 0xbc946e79,
@@ -188,133 +194,293 @@ class BlowCrypt:
             0xb74e6132, 0xce77e25b, 0x578fdfe3, 0x3ac372e6,
         ),
     )
-    __dynamic_keys = []
 
-    def __init__(self, f):
-        self.__file = f
+    def __init__(self, key, byte_order='big'):
+        if not 4 <= len(key) <= 56:
+            raise ValueError("The key is not between 4 and 56 bytes")
 
-    def __feisty_net(self, b_arr_8):
-        l_part_4 = b_arr_8[:4]
-        r_part_4 = b_arr_8[4:]
-        while len(l_part_4) < 4 or len(r_part_4) < 4:
-            if len(l_part_4) < 4:
-                l_part_4 = b'\x00' + l_part_4
-            if len(r_part_4) < 4:
-                r_part_4 = b'\x00' + r_part_4
-        for i in range(16):
-            b_dyn_key = self.__to_bytes(self.__dynamic_keys[i])
-            l_part_4_new = b''
-            for b_i in range(4):
-                l_part_4_new += self.__to_bytes(l_part_4[b_i] ^ b_dyn_key[b_i])
-            l_part_4 = l_part_4_new
-            del l_part_4_new
-            l_part_4 = self.__f(l_part_4) # выходит 3-ех байтовая, почему
-            l_part_4_new = b''
-            for b_i in range(4):
-                l_part_4_new += self.__to_4_bytes(l_part_4[b_i] ^ r_part_4[b_i])
-            l_part_4 = l_part_4_new
-            del l_part_4_new
-            l_part_4, r_part_4 = r_part_4, l_part_4
-        l_part_4, r_part_4 = r_part_4, l_part_4
-        b_17_dyn_key = self.__to_bytes(self.__dynamic_keys[16])
-        l_part_4_new = b''
-        for b_i in range(4):
-            l_part_4_new += self.__to_bytes(l_part_4[b_i] ^ b_17_dyn_key[b_i])
-        l_part_4 = l_part_4_new
-        del l_part_4_new
-        b_18_dyn_key = self.__to_bytes(self.__dynamic_keys[17])
-        r_part_4_new = b''
-        for b_i in range(4):
-            r_part_4_new += self.__to_bytes(r_part_4[b_i] ^ b_18_dyn_key[b_i])
-        r_part_4 = r_part_4_new
-        del r_part_4_new
-        return l_part_4 + r_part_4
+        if byte_order == "big":
+            byte_order_fmt = ">"
+        elif byte_order == "little":
+            byte_order_fmt = "<"
+        else:
+            raise ValueError("byte order must either be 'big' or 'little'")
 
-    def blowfish_encrypt(self, key):
-        b_arr_key = self.__to_bytes(key)
+        self.u4_2_struct = struct.Struct("{}2I".format(byte_order_fmt))
+        self.u4_1_struct = struct.Struct(">I".format(byte_order_fmt))
+        self.u8_1_struct = struct.Struct("{}Q".format(byte_order_fmt))
+        self.u1_4_struct = struct.Struct("=4B")
 
-        reverse_b_arr_key = b_arr_key[::-1]
-        cyc_num = (len(b_arr_key) // 4) + (len(b_arr_key) % 4 != 0)
-        for i in range(cyc_num):
-            curr_key_block = reverse_b_arr_key[i * 4:(i + 1) * 4][::-1]
-            new_b_dyn_key = b''
-            previous_b_pi_key = self.__to_bytes(self.__Pi_keys[i])
-            for b_i in range(4):
-                if len(curr_key_block) >= b_i + 1:
-                    new_b_dyn_key += self.__to_bytes(curr_key_block[b_i] ^ previous_b_pi_key[b_i])
-                else:
-                    new_b_dyn_key += self.__to_bytes(previous_b_pi_key[b_i])
-            self.__dynamic_keys.append(self.__from_bytes(new_b_dyn_key))
-        for j in range(18 - cyc_num):
-            self.__dynamic_keys.append(self.__Pi_keys[j + cyc_num])
+        cyclic_key_iter = cycle(iter(key))
+        cyclic_key_u4_iter = (x for (x,) in map(self.u4_1_struct.unpack, map(bytes, zip(cyclic_key_iter, cyclic_key_iter, cyclic_key_iter, cyclic_key_iter))))
+        P = [(p1 ^ k1, p2 ^ k2) for p1, p2, k1, k2 in zip(self.__Pi_keys[0::2], self.__Pi_keys[1::2], cyclic_key_u4_iter, cyclic_key_u4_iter)]
+        self.__dynamic_keys = P = tuple(P)
+        S1, S2, S3, S4 = S = [[x for x in box] for box in self.__S_boxes]
+        L = 0x00000000
+        R = 0x00000000
+        for box in S:
+            for i in range(0, 256, 2):
+                L, R = self.__encrypt(L, R, P, S1, S2, S3, S4, self.u4_1_struct.pack, self.u1_4_struct.unpack)
+                box[i] = L
+                box[i + 1] = R
+        self.__S_boxes = S = tuple(tuple(box) for box in S)
 
-        rev_file = self.__file[::-1]
-        encrypted_file = b''
-        for i in range(len(rev_file) // 8 + (len(rev_file) % 8 != 0)):
-            curr_file_block = rev_file[i*8:(i+1)*8][::-1]
-            if len(curr_file_block) == 8:
-                curr_file_block = self.__feisty_net(curr_file_block)
-            else:
-                while len(curr_file_block) < 8:
-                    curr_file_block = b'\x00' + curr_file_block
-                curr_file_block = self.__feisty_net(curr_file_block)
-            encrypted_file = curr_file_block + encrypted_file
-        return encrypted_file
+    def feisty_net_encr(self, block):
+        S0, S1, S2, S3 = self.__S_boxes
+        P = self.__dynamic_keys
+        u4_1_pack = self.u4_1_struct.pack
+        u1_4_unpack = self.u1_4_struct.unpack
+        try:
+            L, R = self.u4_2_struct.unpack(block)
+        except:
+            raise ValueError("The block is not 8 bytes in length")
 
-    def __f(self, b_arr_4):
-        b1, b2, b3, b4 = b_arr_4
-        res = (self.__S_boxes[0][b1] + self.__S_boxes[1][b2]) % 2**32
-        res ^= self.__S_boxes[2][b3]
-        res = (res + self.__S_boxes[3][b4]) % 2**32
-        return self.__to_4_bytes(res)
+        for p1, p2 in P[:-1]:
+            L ^= p1
+            a, b, c, d = u1_4_unpack(u4_1_pack(L))
+            R ^= (S0[a] + S1[b] ^ S2[c]) + S3[d] & 0xffffffff
+            R ^= p2
+            a, b, c, d = u1_4_unpack(u4_1_pack(R))
+            L ^= (S0[a] + S1[b] ^ S2[c]) + S3[d] & 0xffffffff
+        p_penultimate, p_last = P[-1]
+        return self.u4_2_struct.pack(R ^ p_last, L ^ p_penultimate)
+
+    def feisty_net_decr(self, block):
+        S0, S1, S2, S3 = self.__S_boxes
+        P = self.__dynamic_keys
+        u4_1_pack = self.u4_1_struct.pack
+        u1_4_unpack = self.u1_4_struct.unpack
+        try:
+            L, R = self.u4_2_struct.unpack(block)
+        except:
+            raise ValueError("block is not 8 bytes in length")
+
+        for p2, p1 in P[:0:-1]:
+            L ^= p1
+            a, b, c, d = u1_4_unpack(u4_1_pack(L))
+            R ^= (S0[a] + S1[b] ^ S2[c]) + S3[d] & 0xffffffff
+            R ^= p2
+            a, b, c, d = u1_4_unpack(u4_1_pack(R))
+            L ^= (S0[a] + S1[b] ^ S2[c]) + S3[d] & 0xffffffff
+        p_first, p_second = P[0]
+        return self.u4_2_struct.pack(R ^ p_first, L ^ p_second)
+
+    def encrypt_default(self, data):
+        S1, S2, S3, S4 = self.__S_boxes
+        P = self.__dynamic_keys
+        u4_2_iter_unpack = self.u4_2_struct.iter_unpack
+        u4_1_pack = self.u4_1_struct.pack
+        u1_4_unpack = self.u1_4_struct.unpack
+        u4_2_pack = self.u4_2_struct.pack
+        encrypt = self.__encrypt
+
+        try:
+            LR = u4_2_iter_unpack(data)
+        except:
+            raise ValueError('data is not 8-bytes multiple in length')
+
+        for L, R in LR:
+            l_curr, r_curr = encrypt(L, R, P, S1, S2, S3, S4, u4_1_pack, u1_4_unpack)
+            yield u4_2_pack(l_curr, r_curr)
+
+
+    def decrypt_default(self, data):
+        S1, S2, S3, S4 = self.__S_boxes
+        P = self.__dynamic_keys
+        u4_1_pack = self.u4_1_struct.pack
+        u1_4_unpack = self.u1_4_struct.unpack
+        decrypt = self.__decrypt
+        u4_2_pack = self.u4_2_struct.pack
+
+        try:
+            LR = self.u4_2_struct.iter_unpack(data)
+        except:
+            raise ValueError('data is not 8-bytes multiple in length')
+
+        for ciph_l, ciph_r in LR:
+            L, R = decrypt(ciph_l, ciph_r, P, S1, S2, S3, S4, u4_1_pack, u1_4_unpack)
+            yield u4_2_pack(L, R)
+
+
+    def encrypt_cbc(self, data, init_vector=struct.pack('>2I', 0, 0)):
+        S1, S2, S3, S4 = self.__S_boxes
+        P = self.__dynamic_keys
+        u4_2_iter_unpack = self.u4_2_struct.iter_unpack
+        u4_1_pack = self.u4_1_struct.pack
+        u1_4_unpack = self.u1_4_struct.unpack
+        u4_2_pack = self.u4_2_struct.pack
+        encrypt = self.__encrypt
+
+        try:
+            l_previous, r_previous = self.u4_2_struct.unpack(init_vector)
+        except:
+            raise ValueError("initialization vector is not 8 bytes in long")
+
+        try:
+            LR = u4_2_iter_unpack(data)
+        except:
+            raise ValueError('data is not 8-bytes multiple in length')
+
+        for L, R in LR:
+            l_previous, r_previous = encrypt(l_previous^L, r_previous^R, P, S1, S2, S3, S4, u4_1_pack, u1_4_unpack)
+            yield u4_2_pack(l_previous, r_previous)
+
+
+    def decrypt_cbc(self, data, init_vector=struct.pack('>2I', 0, 0)):
+        S1, S2, S3, S4 = self.__S_boxes
+        P = self.__dynamic_keys
+        u4_1_pack = self.u4_1_struct.pack
+        u1_4_unpack = self.u1_4_struct.unpack
+        decrypt = self.__decrypt
+        u4_2_pack = self.u4_2_struct.pack
+
+        try:
+            l_previous, r_previous = self.u4_2_struct.unpack(init_vector)
+        except:
+            raise ValueError('initialization vector is not 8-bytes long')
+
+        try:
+            LR = self.u4_2_struct.iter_unpack(data)
+        except:
+            raise ValueError('data is not 8-bytes multiple in length')
+
+        for ciph_l, ciph_r in LR:
+            L, R = decrypt(ciph_l, ciph_r, P, S1, S2, S3, S4, u4_1_pack, u1_4_unpack)
+            yield u4_2_pack(l_previous^L, r_previous^R)
+            l_previous = ciph_l
+            r_previous = ciph_r
+
 
     @staticmethod
-    def __to_bytes(n):
-        hex_str = hex(n)[2:]
-        if len(hex_str) % 2 == 1:
-            hex_str = hex_str.rjust(len(hex_str) + 1, "0")
-        numbers = [int(hex_str[i:i + 2], 16) for i in range(0, len(hex_str), 2)]
-        return struct.pack('B' * len(numbers), *numbers)
+    def __encrypt(L, R, P, S1, S2, S3, S4, u4_1_pack, u1_4_unpack):
+        for p1, p2 in P[:-1]:
+            L ^= p1
+            a, b, c, d = u1_4_unpack(u4_1_pack(L))
+            R ^= (S1[a] + S2[b] ^ S3[c]) + S4[d] & 0xffffffff
+            R ^= p2
+            a, b, c, d = u1_4_unpack(u4_1_pack(R))
+            L ^= (S1[a] + S2[b] ^ S3[c]) + S4[d] & 0xffffffff
+        p_17, p_18 = P[-1]
+        return R ^ p_18, L ^ p_17
 
     @staticmethod
-    def __to_4_bytes(n):
-        hex_str = hex(n)[2:].rjust(8, "0")
-        if len(hex_str) % 2 == 1:
-            hex_str = hex_str.rjust(len(hex_str) + 1, "0")
-        numbers = [int(hex_str[i:i + 2], 16) for i in range(0, len(hex_str), 2)]
-        return struct.pack('B' * len(numbers), *numbers)
+    def __decrypt(L, R, P, S1, S2, S3, S4, u4_1_pack, u1_4_unpack):
+        for p2, p1 in P[:0:-1]:
+            L ^= p1
+            a, b, c, d = u1_4_unpack(u4_1_pack(L))
+            R ^= (S1[a] + S2[b] ^ S3[c]) + S4[d] & 0xffffffff
+            R ^= p2
+            a, b, c, d = u1_4_unpack(u4_1_pack(R))
+            L ^= (S1[a] + S2[b] ^ S3[c]) + S4[d] & 0xffffffff
+        p_first, p_second = P[0]
+        return R ^ p_first, L ^ p_second
 
-    @staticmethod
-    def __from_bytes(b_arr):
-        hex_str = ""
-        for byte in b_arr:
-            hex_str += hex(byte)[2:].rjust(2, "0")
-        return int(hex_str, 16)
 
 if __name__ == "__main__":
-    str_path = input("Hello! This is The Blowfish cipher. Please write down the file path and we will cipher it (you can use either absolute path, started from C:, or relative one): ")
-    key = int(input('Now, please write down the key to cipher (it must be not greater than a 576-bit number): '))
-    create_input = input("Whether you want to create a new encrypted file in this directory or not? Yes[Y] , No[N]: ")
-    create_flag = False if create_input == 'N' else (True if create_input == "Y" else 'Error')
-    if create_flag == 'Error':
-        raise ValueError('You need to input only Y or N')
+    file_directory = input('Enter file directory (related or absolute): ')
+
     try:
-        print("[+] Process started")
-        with open(str_path, 'rb') as file:
-            file_in = file.read()
-        file_cr = BlowCrypt(file_in)
-        encr_file = file_cr.blowfish_encrypt(key)
-        if create_flag:
-            file_cr = BlowCrypt(file_in)
-            encr_file = file_cr.blowfish_encrypt(key)
-            with open('encryptedfile', 'wb') as new_file:
-                new_file.write(encr_file)
-                print("[+] Process is fully completed! Your result is in your directory, check it out! See you later!")
-        else:
-            print(f"[+] Process is fully completed! Your result is down below! See you later! \n\n{encr_file}")
-    except FileNotFoundError:
-        print('[-] There is a problem with file reading. Try again with correct file path')
-    except TypeError:
-        print('[-] There is a TypeError. Check, if key is an integer and not even float and try again')
+        with open(file_directory, 'rb') as bin_f:
+            bin_file = bin_f.read()
     except:
-        print('[-] There is some problem. Try to ask creator about it, he is a good guy')
+        raise FileNotFoundError('File was not found')
+
+    key = input('Enter key to cipher (string type is preferable): ').encode()
+    mode = input('Choose mode of encrypting: \n'
+                 '1. No mode; \n'
+                 '2. CBC mode. \n'
+                 'Your choose is: ')
+    e_or_d = input(
+        'Choose whether you want to encrypt or decrypt this file: \n'
+        '1. Encrypt; \n'
+        '2. Decrypt. \n'
+        'Your choose is: ')
+    cnt = 0
+    if len(bin_file) % 8 != 0:
+        cnt = 8 - (len(bin_file) % 8)
+        bin_file = struct.pack('b', 0)*cnt + bin_file
+
+    encr_bin_file_prep = BlowCrypt(key)
+
+    if mode == '1':
+        if e_or_d == '1':
+            encr_bin_iter = encr_bin_file_prep.encrypt_default(bin_file)
+            encr_bin_str = b''
+            for i in encr_bin_iter:
+                encr_bin_str += i
+            print('Your encrypted file is: ', encr_bin_str, sep='\n')
+            with open('encrypted_file.txt', 'wb') as file:
+                file.write(encr_bin_str)
+                print('Also file was created. Check it out!')
+            decflag = input(
+                'Do you want to decrypt it again? \n'
+                '1. Yes, do it; \n'
+                '2. No, stop the process. \n'
+                'Your choose is: ')
+            if decflag == '1':
+                decr_bin_iter = encr_bin_file_prep.decrypt_default(encr_bin_str)
+                decr_bin_str = b''
+                for i in decr_bin_iter:
+                    decr_bin_str += i
+                print(f'Your file was: \n'
+                      f'{decr_bin_str[cnt:].decode()}\n'
+                      f'See you later!')
+            elif decflag == '2':
+                print('See you later then!')
+            else:
+                print('There is no such option')
+        elif e_or_d == '2':
+            decr_bin_iter = encr_bin_file_prep.decrypt_default(bin_file)
+            decr_bin_str = b''
+            for i in decr_bin_iter:
+                decr_bin_str += i
+            while decr_bin_str[0] == 0:
+                decr_bin_str = decr_bin_str[1:]
+            print('Your decrypted file is: ', decr_bin_str, sep='\n')
+            with open('decrypted_file.txt', 'wb') as file:
+                file.write(decr_bin_str)
+                print('Also file was created. Check it out!')
+        else:
+            print('There is no such option')
+    elif mode == '2':
+        if e_or_d == '1':
+            encr_bin_iter = encr_bin_file_prep.encrypt_cbc(bin_file)
+            encr_bin_str = b''
+            for i in encr_bin_iter:
+                encr_bin_str += i
+            print('Your encrypted file is: ', encr_bin_str, sep='\n')
+            with open('encrypted_file.txt', 'wb') as file:
+                file.write(encr_bin_str)
+                print('Also file was created. Check it out!')
+            decflag = input(
+                'Do you want to decrypt it again? \n'
+                '1. Yes, do it; \n'
+                '2. No, stop the process. \n'
+                'Your choose is: ')
+            if decflag == '1':
+                decr_bin_iter = encr_bin_file_prep.decrypt_cbc(encr_bin_str)
+                decr_bin_str = b''
+                for i in decr_bin_iter:
+                    decr_bin_str += i
+                print(f'Your file was: \n'
+                      f'{decr_bin_str[cnt:].decode()}\n'
+                      f'See you later!')
+            elif decflag == '2':
+                print('See you later then!')
+            else:
+                print('There is no such option')
+        elif e_or_d == '2':
+            decr_bin_iter = encr_bin_file_prep.decrypt_cbc(bin_file)
+            decr_bin_str = b''
+            for i in decr_bin_iter:
+                decr_bin_str += i
+            while decr_bin_str[0] == 0:
+                decr_bin_str = decr_bin_str[1:]
+            print('Your decrypted file is: ', decr_bin_str, sep='\n')
+            with open('decrypted_file.txt', 'wb') as file:
+                file.write(decr_bin_str)
+                print('Also file was created. Check it out!')
+        else:
+            print('There is no such option')
+    else:
+        print('There is no such option')
