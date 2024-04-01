@@ -1,11 +1,15 @@
-from itertools import cycle
-import struct
+from itertools import cycle  # cyclic iterator for key encryption
+import struct  # library for converting nums into bytes
 
 
 class BlowCrypt:
     """
     Class of bytes array that can be encrypted and also decrypted using Blowfish algorithm.
-    To interact with it use ...
+    To interact with it use data with exact number of bytes that is divisible by 8 (8, 16, 24, 32...)
+    This blowfish algorithm contains encryption and decryption by 3 different mods:
+    1. No mode encryption;
+    2. CBC-mode encryption;
+    3. MGM-mode encryption.
     """
     __Pi_keys = (  # the hexadecimal 4-bytes interpretations of Pi
         0x243f6a88, 0x85a308d3, 0x13198a2e, 0x03707344, 0xa4093822, 0x299f31d0,
@@ -13,7 +17,7 @@ class BlowCrypt:
         0xc0ac29b7, 0xc97c50dd, 0x3f84d5b5, 0xb5470917, 0x9216d5d9, 0x8979fb1b
     )
     __S_boxes = (
-        (  # self.__S_boxes[0]
+        (
             0xd1310ba6, 0x98dfb5ac, 0x2ffd72db, 0xd01adfb7, 0xb8e1afed, 0x6a267e96,
             0xba7c9045, 0xf12c7f99, 0x24a19947, 0xb3916cf7, 0x0801f2e2, 0x858efc16,
             0x636920d8, 0x71574e69, 0xa458fea3, 0xf4933d7e, 0x0d95748f, 0x728eb658,
@@ -58,7 +62,7 @@ class BlowCrypt:
             0xf296ec6b, 0x2a0dd915, 0xb6636521, 0xe7b9f9b6, 0xff34052e, 0xc5855664,
             0x53b02d5d, 0xa99f8fa1, 0x08ba4799, 0x6e85076a,
         ),
-        (  # self.__S_boxes[1]
+        (
             0x4b7a70e9, 0xb5b32944, 0xdb75092e, 0xc4192623, 0xad6ea6b0, 0x49a7df7d,
             0x9cee60b8, 0x8fedb266, 0xecaa8c71, 0x699a17ff, 0x5664526c, 0xc2b19ee1,
             0x193602a5, 0x75094c29, 0xa0591340, 0xe4183a3e, 0x3f54989a, 0x5b429d65,
@@ -103,7 +107,7 @@ class BlowCrypt:
             0x675fda79, 0xe3674340, 0xc5c43465, 0x713e38d8, 0x3d28f89e, 0xf16dff20,
             0x153e21e7, 0x8fb03d4a, 0xe6e39f2b, 0xdb83adf7,
         ),
-        (  # self.__S_boxes[2]
+        (
             0xe93d5a68, 0x948140f7, 0xf64c261c, 0x94692934, 0x411520f7, 0x7602d4f7,
             0xbcf46b2e, 0xd4a20068, 0xd4082471, 0x3320f46a, 0x43b7d4b7, 0x500061af,
             0x1e39f62e, 0x97244546, 0x14214f74, 0xbf8b8840, 0x4d95fc1d, 0x96b591af,
@@ -148,7 +152,7 @@ class BlowCrypt:
             0xa28514d9, 0x6c51133c, 0x6fd5c7e7, 0x56e14ec4, 0x362abfce, 0xddc6c837,
             0xd79a3234, 0x92638212, 0x670efa8e, 0x406000e0,
         ),
-        (  # self.__S_boxes[3]
+        (
             0x3a39ce37, 0xd3faf5cf, 0xabc27737, 0x5ac52d1b, 0x5cb0679e, 0x4fa33742,
             0xd3822740, 0x99bc9bbe, 0xd5118e9d, 0xbf0f7315, 0xd62d1c7e, 0xc700c47b,
             0xb78c1b6b, 0x21a19045, 0xb26eb1be, 0x6a366eb4, 0x5748ab2f, 0xbc946e79,
@@ -283,7 +287,6 @@ class BlowCrypt:
             l_curr, r_curr = encrypt(L, R, P, S1, S2, S3, S4, u4_1_pack, u1_4_unpack)
             yield u4_2_pack(l_curr, r_curr)
 
-
     def decrypt_default(self, data):
         S1, S2, S3, S4 = self.__S_boxes
         P = self.__dynamic_keys
@@ -300,7 +303,6 @@ class BlowCrypt:
         for ciph_l, ciph_r in LR:
             L, R = decrypt(ciph_l, ciph_r, P, S1, S2, S3, S4, u4_1_pack, u1_4_unpack)
             yield u4_2_pack(L, R)
-
 
     def encrypt_cbc(self, data, init_vector=struct.pack('>2I', 0, 0)):
         S1, S2, S3, S4 = self.__S_boxes
@@ -380,37 +382,34 @@ if __name__ == "__main__":
     file_directory = input('Enter file directory (related or absolute): ')
 
     try:
-        with open(file_directory, 'rb') as bin_f:
-            bin_file = bin_f.read()
+        with open(file_directory, 'rb') as byte_f:
+            byte_file = byte_f.read()
     except:
         raise FileNotFoundError('File was not found')
 
-    key = input('Enter key to cipher (string type is preferable): ').encode()
+    key = input('Enter key to cipher (string type is preferable): ').encode()[:56]
     mode = input('Choose mode of encrypting: \n'
                  '1. No mode; \n'
                  '2. CBC mode. \n'
                  'Your choose is: ')
-    e_or_d = input(
-        'Choose whether you want to encrypt or decrypt this file: \n'
-        '1. Encrypt; \n'
-        '2. Decrypt. \n'
-        'Your choose is: ')
     cnt = 0
-    if len(bin_file) % 8 != 0:
-        cnt = 8 - (len(bin_file) % 8)
-        bin_file = struct.pack('b', 0)*cnt + bin_file
+    if len(byte_file) % 8 != 0:
+        cnt = 8 - (len(byte_file) % 8)
+        byte_file = struct.pack('b', 0)*cnt + byte_file
 
-    encr_bin_file_prep = BlowCrypt(key)
+    EncryptObject = BlowCrypt(key)
 
     if mode == '1':
+        e_or_d = input(
+            'Choose whether you want to encrypt or decrypt this file: \n'
+            '1. Encrypt; \n'
+            '2. Decrypt. \n'
+            'Your choose is: ')
         if e_or_d == '1':
-            encr_bin_iter = encr_bin_file_prep.encrypt_default(bin_file)
-            encr_bin_str = b''
-            for i in encr_bin_iter:
-                encr_bin_str += i
-            print('Your encrypted file is: ', encr_bin_str, sep='\n')
+            encr_byte = b''.join(EncryptObject.encrypt_default(byte_file))
+            print('Your encrypted file is: ', encr_byte, sep='\n')
             with open('encrypted_file.txt', 'wb') as file:
-                file.write(encr_bin_str)
+                file.write(encr_byte)
                 print('Also file was created. Check it out!')
             decflag = input(
                 'Do you want to decrypt it again? \n'
@@ -418,39 +417,38 @@ if __name__ == "__main__":
                 '2. No, stop the process. \n'
                 'Your choose is: ')
             if decflag == '1':
-                decr_bin_iter = encr_bin_file_prep.decrypt_default(encr_bin_str)
-                decr_bin_str = b''
-                for i in decr_bin_iter:
-                    decr_bin_str += i
+                decr_byte = b''.join(EncryptObject.decrypt_default(encr_byte))
                 print(f'Your file was: \n'
-                      f'{decr_bin_str[cnt:].decode()}\n'
+                      f'{decr_byte[cnt:].decode()}\n'
                       f'See you later!')
             elif decflag == '2':
                 print('See you later then!')
             else:
                 print('There is no such option')
         elif e_or_d == '2':
-            decr_bin_iter = encr_bin_file_prep.decrypt_default(bin_file)
-            decr_bin_str = b''
-            for i in decr_bin_iter:
-                decr_bin_str += i
-            while decr_bin_str[0] == 0:
-                decr_bin_str = decr_bin_str[1:]
-            print('Your decrypted file is: ', decr_bin_str, sep='\n')
+            decr_byte = b''.join(EncryptObject.decrypt_default(byte_file))
+            while decr_byte[0] == 0:
+                decr_byte = decr_byte[1:]
+            print('Your decrypted file is: ', decr_byte, sep='\n')
             with open('decrypted_file.txt', 'wb') as file:
-                file.write(decr_bin_str)
+                file.write(decr_byte)
                 print('Also file was created. Check it out!')
         else:
             print('There is no such option')
     elif mode == '2':
+        e_or_d = input(
+            'Choose whether you want to encrypt or decrypt this file: \n'
+            '1. Encrypt; \n'
+            '2. Decrypt. \n'
+            'Your choose is: ')
         if e_or_d == '1':
-            encr_bin_iter = encr_bin_file_prep.encrypt_cbc(bin_file)
-            encr_bin_str = b''
-            for i in encr_bin_iter:
-                encr_bin_str += i
-            print('Your encrypted file is: ', encr_bin_str, sep='\n')
+            iv = input('Enter initializing vector for CBC-mode encryption: ').encode()[:8]
+            print(len(iv))
+            iv = struct.pack('b', 0) * (8-len(iv)) + iv
+            encr_byte = b''.join(EncryptObject.encrypt_cbc(byte_file, iv))
+            print('Your encrypted file is: ', encr_byte, sep='\n')
             with open('encrypted_file.txt', 'wb') as file:
-                file.write(encr_bin_str)
+                file.write(encr_byte)
                 print('Also file was created. Check it out!')
             decflag = input(
                 'Do you want to decrypt it again? \n'
@@ -458,27 +456,23 @@ if __name__ == "__main__":
                 '2. No, stop the process. \n'
                 'Your choose is: ')
             if decflag == '1':
-                decr_bin_iter = encr_bin_file_prep.decrypt_cbc(encr_bin_str)
-                decr_bin_str = b''
-                for i in decr_bin_iter:
-                    decr_bin_str += i
+                decr_byte = b''.join(EncryptObject.decrypt_cbc(encr_byte, iv))
                 print(f'Your file was: \n'
-                      f'{decr_bin_str[cnt:].decode()}\n'
+                      f'{decr_byte[cnt:].decode()}\n'
                       f'See you later!')
             elif decflag == '2':
                 print('See you later then!')
             else:
                 print('There is no such option')
         elif e_or_d == '2':
-            decr_bin_iter = encr_bin_file_prep.decrypt_cbc(bin_file)
-            decr_bin_str = b''
-            for i in decr_bin_iter:
-                decr_bin_str += i
-            while decr_bin_str[0] == 0:
-                decr_bin_str = decr_bin_str[1:]
-            print('Your decrypted file is: ', decr_bin_str, sep='\n')
+            iv = input('Enter initializing vector for CBC-mode decryption: ').encode()[:8]
+            iv = struct.pack('b', 0) * (8-len(iv)) + iv
+            decr_byte = b''.join(EncryptObject.decrypt_cbc(byte_file, iv))
+            while decr_byte[0] == 0:
+                decr_byte = decr_byte[1:]
+            print('Your decrypted file is: ', decr_byte, sep='\n')
             with open('decrypted_file.txt', 'wb') as file:
-                file.write(decr_bin_str)
+                file.write(decr_byte)
                 print('Also file was created. Check it out!')
         else:
             print('There is no such option')
