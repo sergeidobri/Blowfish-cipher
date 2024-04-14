@@ -218,10 +218,15 @@ class BlowCrypt:
         cyclic_key_iter = cycle(iter(key))
         cyclic_key_u4_iter = (x for (x,) in map(self.u4_1_struct.unpack, map(bytes, zip(cyclic_key_iter, cyclic_key_iter, cyclic_key_iter, cyclic_key_iter))))
         P = [(p1 ^ k1, p2 ^ k2) for p1, p2, k1, k2 in zip(self.__Pi_keys[0::2], self.__Pi_keys[1::2], cyclic_key_u4_iter, cyclic_key_u4_iter)]
-        self.__dynamic_keys = P = tuple(P)
         S1, S2, S3, S4 = S = [[x for x in box] for box in self.__S_boxes]
         L = 0x00000000
         R = 0x00000000
+
+        for i in range(len(P)):
+            P[i] = L, R = self.__encrypt(L, R, P, S1, S2, S3, S4, self.u4_1_struct.pack, self.u1_4_struct.unpack)
+
+        self.__dynamic_keys = P = tuple(P)
+
         for box in S:
             for i in range(0, 256, 2):
                 L, R = self.__encrypt(L, R, P, S1, S2, S3, S4, self.u4_1_struct.pack, self.u1_4_struct.unpack)
