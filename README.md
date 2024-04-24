@@ -1,5 +1,5 @@
 blowfish_very_first_py_realization.py - main blowfish encryption algorithm.
-It has its own interface.
+It has its own interface. Also, there is CubeHash algorithm as well.
 
 blowfish_vectors.txt - correctly ciphered vectors. Used to check whether 
 algorithm encrypts properly.
