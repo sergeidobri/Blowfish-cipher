@@ -381,6 +381,176 @@ class BlowCrypt:
         return R ^ p_first, L ^ p_second
 
 
+class CubeHash:
+    def __init__(self, i, b, r, f, h):
+        self.i = i
+        self.b = b
+        self.r = r
+        self.f = f
+        self.h = h
+
+        state = [h // 8, b, r]
+        while len(state) != 128:
+            state.append(0)
+        self.state = self._transform(state, self.i)
+
+    def hash(self, msg):
+        num_to_bits = self._num_to_bits
+        b, r, f = self.b, self.r, self.f
+        bits_to_num = self._bits_to_num
+        transform = self._transform
+        xor = self._xor
+        num_to_hex_byte = self._num_to_hex_byte
+
+        message_bits = ''.join([num_to_bits(i, 8) for i in msg.encode()])
+        message_bits += '1'
+        while len(message_bits) % (8 * b) != 0:
+            message_bits += '0'
+
+        message = [bits_to_num(message_bits[i:i + 8]) for i in range(0, len(message_bits), 8)]
+        state = self.state
+
+        for k in range(0, len(message_bits), b):
+            state = xor(state, message[k:k + b])
+            state = transform(state, r)
+
+        state[-1] ^= 1
+        state = transform(state, f)
+        final_hash = ''.join(map(num_to_hex_byte, state))
+        return final_hash
+
+    def _transform(self, state_in, times):
+        num_to_bits = self._num_to_bits
+        bits_to_num = self._bits_to_num
+
+        state_lst = []
+        for e in range(0, 128, 4):
+            curr_num = ''
+            for p in state_in[e:e + 4]:
+                curr_num += num_to_bits(p, 8)
+            state_lst.append(bits_to_num(curr_num))
+
+        for _ in range(times):
+
+            # 1. modulo 2^32
+            for j in range(2):
+                for k in range(2):
+                    for l in range(2):
+                        for m in range(2):
+                            state_lst[2 ** 4 + j * 2 ** 3 + k * 2 ** 2 + l * 2 + m] = (state_lst[j * 2 ** 3 + k * 2 ** 2 + l * 2 + m] + state_lst[2 ** 4 + j * 2 ** 3 + k * 2 ** 2 + l * 2 + m]) % 2 ** 32
+
+            # 2. rotate UPWARDS (don't fucking know what it means)
+            for j in range(2):
+                for k in range(2):
+                    for l in range(2):
+                        for m in range(2):
+                            x = num_to_bits(state_lst[j * 2 ** 3 + k * 2 ** 2 + l * 2 + m], 32)
+                            state_lst[j * 2 ** 3 + k * 2 ** 2 + l * 2 + m] = bits_to_num(x[7:] + x[:7])
+
+            # 3. swapping
+            for k in range(2):
+                for l in range(2):
+                    for m in range(2):
+                        state_lst[k * 2 ** 2 + l * 2 + m], state_lst[2 ** 3 + k * 2 ** 2 + l * 2 + m] = state_lst[2 ** 3 + k * 2 ** 2 + l * 2 + m], state_lst[k * 2 ** 2 + l * 2 + m]
+
+            # 4. xor
+            for j in range(2):
+                for k in range(2):
+                    for l in range(2):
+                        for m in range(2):
+                            state_lst[j * 2 ** 3 + k * 2 ** 2 + l * 2 + m] ^= state_lst[2 ** 4 + j * 2 ** 3 + k * 2 ** 2 + l * 2 + m]
+
+            # 5. swap
+            for j in range(2):
+                for k in range(2):
+                    for m in range(2):
+                        state_lst[2 ** 4 + j * 2 ** 3 + k * 2 ** 2 + m], state_lst[2 ** 4 + j * 2 ** 3 + k * 2 ** 2 + 2 + m] = state_lst[2 ** 4 + j * 2 ** 3 + k * 2 ** 2 + 2 + m], state_lst[2 ** 4 + j * 2 ** 3 + k * 2 ** 2 + m]
+
+            # 6. modulo 2^32
+            for j in range(2):
+                for k in range(2):
+                    for l in range(2):
+                        for m in range(2):
+                            state_lst[2 ** 4 + j * 2 ** 3 + k * 2 ** 2 + l * 2 + m] = (state_lst[j * 2 ** 3 + k * 2 ** 2 + l * 2 + m] + state_lst[2 ** 4 + j * 2 ** 3 + k * 2 ** 2 + l * 2 + m]) % 2 ** 32
+
+            # 7. rotate UPWARDS (don't fucking know what it means)
+            for j in range(2):
+                for k in range(2):
+                    for l in range(2):
+                        for m in range(2):
+                            x = num_to_bits(state_lst[j * 2 ** 3 + k * 2 ** 2 + l * 2 + m], 32)
+                            state_lst[j * 2 ** 3 + k * 2 ** 2 + l * 2 + m] = bits_to_num(x[11:] + x[:11])
+
+            # 8. swap
+            for j in range(2):
+                for l in range(2):
+                    for m in range(2):
+                        state_lst[j * 2 ** 3 + l * 2 + m], state_lst[j * 2 ** 3 + 2 ** 2 + l * 2 + m] = state_lst[j * 2 ** 3 + 2 ** 2 + l * 2 + m], state_lst[j * 2 ** 3 + l * 2 + m]
+
+            # 9. xor
+            for j in range(2):
+                for k in range(2):
+                    for l in range(2):
+                        for m in range(2):
+                            state_lst[j * 2 ** 3 + k * 2 ** 2 + l * 2 + m] ^= state_lst[2 ** 4 + j * 2 ** 3 + k * 2 ** 2 + l * 2 + m]
+
+            # 10. swap
+            for j in range(2):
+                for k in range(2):
+                    for l in range(2):
+                        state_lst[2 ** 4 + j * 2 ** 3 + k * 2 ** 2 + l * 2], state_lst[2 ** 4 + j * 2 ** 3 + k * 2 ** 2 + l * 2 + 1] = state_lst[2 ** 4 + j * 2 ** 3 + k * 2 ** 2 + l * 2 + 1], state_lst[2 ** 4 + j * 2 ** 3 + k * 2 ** 2 + l * 2]
+
+        res_lst = []
+        for e in range(32):
+            curr_lst = []
+            curr_str = num_to_bits(state_lst[e], 32)
+            for p in range(0, 32, 8):
+                curr_lst.append(bits_to_num(curr_str[p:p + 8]))
+            a, b, c, d = curr_lst
+            res_lst.extend([a, b, c, d])
+
+        return res_lst
+
+    @staticmethod
+    def _num_to_bits(num, width):
+        bin_num = bin(num)[2:]
+        return f'{bin_num}'.rjust(width, '0')
+
+    @staticmethod
+    def _bits_to_num(bits):
+        return int(bits, 2)
+
+    @staticmethod
+    def _xor(n1, n2):
+        res = []
+        min_lst, max_lst = min(n1, n2, key=len), max(n1, n2, key=len)
+        for j in range(len(min_lst)):
+            res.append(n1[j] ^ n2[j])
+        i = len(min_lst)
+        while i < len(max_lst):
+            res.append(max_lst[i])
+            i += 1
+        return res
+
+    @staticmethod
+    def _num_to_hex_byte(num):
+        return f'{hex(num)[2:]}'.rjust(2, '0')
+
+
+def cubehash():
+    msg = input('Enter your password: ')
+    config = input('There are basic options for this algorithm:\ni=16\nb=32\nr=16\nf=32\nh=512\nDo you want to change it (better not to do it)?\nAnswer[y/n]: ')
+    if config == 'n':
+        i, b, r, f, h = 16, 32, 16, 32, 512
+    elif config == 'y':
+        i, b, r, f, h = map(int, input('Enter values for i, b, r, f, h respectively, using whitespaces:\n').split(' '))
+    else:
+        print('There is no such option')
+        return
+    cubehash_prep = CubeHash(i, b, r, f, h)
+    print('Your hash is:', cubehash_prep.hash(msg), 'See you later!', sep='\n')
+
+
 def ets_crypt(encr_obj, b_file, file_directory):
     e_or_d = input(
         'Choose whether you want to encrypt or decrypt this file: \n'
@@ -460,6 +630,15 @@ def main():
     except:
         raise FileNotFoundError('File was not found')
 
+    mode = input('Choose mode of encrypting: \n'
+                 '1. ETS mode; \n'
+                 '2. CBC mode; \n'
+                 '3. CubeHash. \n'
+                 'Your choose is: ')
+    if mode == '3':
+        cubehash()
+        return
+
     while True:
         key = input('Enter key to cipher (string type is preferable): ').encode()
         if len(key) < 4:
@@ -469,10 +648,7 @@ def main():
             print('Your key is more than 56 bytes long, algorithm will cut it')
             key = key[:56]
         break
-    mode = input('Choose mode of encrypting: \n'
-                 '1. ETS mode; \n'
-                 '2. CBC mode. \n'
-                 'Your choose is: ')
+
     if len(byte_file) % 8 != 0:
         byte_file = struct.pack('b', 0) * (8 - (len(byte_file) % 8)) + byte_file
     EncryptObject = BlowCrypt(key)
@@ -482,6 +658,7 @@ def main():
         cbc_crypt(EncryptObject, byte_file, file_directory)
     else:
         print('There is no such option')
+    return
 
 
 if __name__ == "__main__":
