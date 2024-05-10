@@ -1,5 +1,5 @@
 from itertools import cycle  # cyclic iterator for key encryption
-import struct  # library for converting nums into bytes
+
 
 
 class BlowCrypt:
@@ -11,6 +11,7 @@ class BlowCrypt:
     2. CBC-mode encryption;
     3. MGM-mode encryption.
     """
+    n = 64  # length of block in bits
     __Pi_keys = (  # the hexadecimal 4-bytes interpretations of Pi
         0x243f6a88, 0x85a308d3, 0x13198a2e, 0x03707344, 0xa4093822, 0x299f31d0,
         0x082efa98, 0xec4e6c89, 0x452821e6, 0x38d01377, 0xbe5466cf, 0x34e90c6c,
@@ -199,186 +200,433 @@ class BlowCrypt:
         ),
     )
 
-    def __init__(self, key, byte_order='big'):
+    def __init__(self, key):
         if not 4 <= len(key) <= 56:
             raise ValueError("The key is not between 4 and 56 bytes")
 
-        if byte_order == "big":
-            byte_order_fmt = ">"
-        elif byte_order == "little":
-            byte_order_fmt = "<"
-        else:
-            raise ValueError("byte order must either be 'big' or 'little'")
-
-        self.u4_2_struct = struct.Struct("{}2I".format(byte_order_fmt))
-        self.u4_1_struct = struct.Struct("{}I".format(byte_order_fmt))
-        self.u8_1_struct = struct.Struct("{}Q".format(byte_order_fmt))
-        self.u1_4_struct = struct.Struct("=4B")
-
-        cyclic_key_iter = cycle(iter(key))
-        cyclic_key_u4_iter = (x for (x,) in map(self.u4_1_struct.unpack, map(bytes, zip(cyclic_key_iter, cyclic_key_iter, cyclic_key_iter, cyclic_key_iter))))
-        P = [(p1 ^ k1, p2 ^ k2) for p1, p2, k1, k2 in zip(self.__Pi_keys[0::2], self.__Pi_keys[1::2], cyclic_key_u4_iter, cyclic_key_u4_iter)]
+        cyclic_key_iter = cycle(iter(key))  # перебор ключа циклически по кольцу за вычетом len(key)
+        cyclic_key_u4_iter = (i for i in map(lambda x: int.from_bytes(x),       # итератор, каждая итерация по которому
+                                             map(bytes, zip(cyclic_key_iter,    # возвращает число, которое представляет
+                                                            cyclic_key_iter,    # из себя подряд идущие 4 байта ключа.
+                                                            cyclic_key_iter,    # Если ключ кончился, то итерация начи-
+                                                            cyclic_key_iter)))) # нается с его начала и так по кругу
+        P = [(p1 ^ k1, p2 ^ k2) for p1, p2, k1, k2 in zip(self.__Pi_keys[0::2], # Для экономия времени попарно xor-им
+                                                          self.__Pi_keys[1::2], # раундовые ключи с ключом шифрования.
+                                                          cyclic_key_u4_iter,   # Создаем начальный набор из 18-ти
+                                                          cyclic_key_u4_iter)]  # ключей
         S1, S2, S3, S4 = S = [[x for x in box] for box in self.__S_boxes]
         L = 0x00000000
         R = 0x00000000
 
-        for i in range(len(P)):
-            P[i] = L, R = self.__encrypt(L, R, P, S1, S2, S3, S4, self.u4_1_struct.pack, self.u1_4_struct.unpack)
+        for i in range(len(P)):  # по очереди создаем подстановочные ключи. Каждый элемент P это кортеж из целых чисел.
+            P[i] = L, R = self.__encrypt(L, R, P, S1, S2, S3, S4)
 
-        self.__dynamic_keys = P = tuple(P)
+        self.__dynamic_keys = P
 
-        for box in S:
+        for box in S:  # затем меняем все подстановочные матрицы
             for i in range(0, 256, 2):
-                L, R = self.__encrypt(L, R, P, S1, S2, S3, S4, self.u4_1_struct.pack, self.u1_4_struct.unpack)
-                box[i] = L
+                L, R = self.__encrypt(L, R, P, S1, S2, S3, S4)  # из этой функции выходят 8 байтов в виде двух челых
+                box[i] = L                                      # чисел
                 box[i + 1] = R
-        self.__S_boxes = S = tuple(tuple(box) for box in S)
+        self.__S_boxes = S
 
+    # encrypting of 1 single block of 8 bytes
     def feisty_net_encr(self, block):
         S0, S1, S2, S3 = self.__S_boxes
         P = self.__dynamic_keys
-        u4_1_pack = self.u4_1_struct.pack
-        u1_4_unpack = self.u1_4_struct.unpack
-        try:
-            L, R = self.u4_2_struct.unpack(block)
-        except:
+        if len(block) != 8:  # если блок не 8 байтов, выкидываем ошибку
             raise ValueError("The block is not 8 bytes in length")
+        L, R = int.from_bytes(block[:4]), int.from_bytes(block[4:])
 
-        for p1, p2 in P[:-1]:
+        for p1, p2 in P[:-1]:  # выполняем шифрование блока прямо здесь
             L ^= p1
-            a, b, c, d = u1_4_unpack(u4_1_pack(L))
+            a, b, c, d = L.to_bytes(4)
             R ^= (S0[a] + S1[b] ^ S2[c]) + S3[d] & 0xffffffff
             R ^= p2
-            a, b, c, d = u1_4_unpack(u4_1_pack(R))
+            a, b, c, d = R.to_bytes(4)
             L ^= (S0[a] + S1[b] ^ S2[c]) + S3[d] & 0xffffffff
         p_penultimate, p_last = P[-1]
-        return self.u4_2_struct.pack(R ^ p_last, L ^ p_penultimate)
+        return int(R ^ p_last).to_bytes(4) + int(L ^ p_penultimate).to_bytes(4)  # обратите внимание, что
+                                                                                 # мы перевернули R и L
 
+    # decrypting of 1 single block of 8 bytes
     def feisty_net_decr(self, block):
         S0, S1, S2, S3 = self.__S_boxes
         P = self.__dynamic_keys
-        u4_1_pack = self.u4_1_struct.pack
-        u1_4_unpack = self.u1_4_struct.unpack
-        try:
-            L, R = self.u4_2_struct.unpack(block)
-        except:
+        if len(block) != 8:
             raise ValueError("block is not 8 bytes in length")
+        L, R = int.from_bytes(block[:4]), int.from_bytes(block[4:])
 
         for p2, p1 in P[:0:-1]:
             L ^= p1
-            a, b, c, d = u1_4_unpack(u4_1_pack(L))
+            a, b, c, d = L.to_bytes(4)
             R ^= (S0[a] + S1[b] ^ S2[c]) + S3[d] & 0xffffffff
             R ^= p2
-            a, b, c, d = u1_4_unpack(u4_1_pack(R))
+            a, b, c, d = R.to_bytes(4)
             L ^= (S0[a] + S1[b] ^ S2[c]) + S3[d] & 0xffffffff
         p_first, p_second = P[0]
-        return self.u4_2_struct.pack(R ^ p_first, L ^ p_second)
+        return int(R ^ p_first).to_bytes(4) + int(L ^ p_second).to_bytes(4)
 
+    # encrypting multiple-8 length of bytes using blowfish ets mode
     def encrypt_ets(self, data):
         S1, S2, S3, S4 = self.__S_boxes
         P = self.__dynamic_keys
-        u4_2_iter_unpack = self.u4_2_struct.iter_unpack
-        u4_1_pack = self.u4_1_struct.pack
-        u1_4_unpack = self.u1_4_struct.unpack
-        u4_2_pack = self.u4_2_struct.pack
         encrypt = self.__encrypt
 
-        try:
-            LR = u4_2_iter_unpack(data)
-        except:
+        if len(data) % 8 != 0:
             raise ValueError('data is not 8-bytes multiple in length')
 
-        for L, R in LR:
-            l_curr, r_curr = encrypt(L, R, P, S1, S2, S3, S4, u4_1_pack, u1_4_unpack)
-            yield u4_2_pack(l_curr, r_curr)
+        LR = []
+        for i in range(0, len(data), 8):
+            LR.append((int.from_bytes(data[i:i + 4]), int.from_bytes(data[i + 4:i + 8])))
 
+        for L, R in LR:
+            l_curr, r_curr = encrypt(L, R, P, S1, S2, S3, S4)
+            yield int(l_curr).to_bytes(4) + int(r_curr).to_bytes(4)
+
+    # decrypting multiple-8 length of bytes using blowfish ets mode
     def decrypt_ets(self, data):
         S1, S2, S3, S4 = self.__S_boxes
         P = self.__dynamic_keys
-        u4_1_pack = self.u4_1_struct.pack
-        u1_4_unpack = self.u1_4_struct.unpack
         decrypt = self.__decrypt
-        u4_2_pack = self.u4_2_struct.pack
-
-        try:
-            LR = self.u4_2_struct.iter_unpack(data)
-        except:
+        if len(data) % 8 != 0:
             raise ValueError('data is not 8-bytes multiple in length')
 
-        for ciph_l, ciph_r in LR:
-            L, R = decrypt(ciph_l, ciph_r, P, S1, S2, S3, S4, u4_1_pack, u1_4_unpack)
-            yield u4_2_pack(L, R)
+        LR = []
+        for i in range(0, len(data), 8):
+            LR.append((int.from_bytes(data[i:i+4]), int.from_bytes(data[i+4:i+8])))
 
-    def encrypt_cbc(self, data, init_vector=struct.pack('>2I', 0, 0)):
+        for ciph_l, ciph_r in LR:
+            L, R = decrypt(ciph_l, ciph_r, P, S1, S2, S3, S4)
+            yield int(L).to_bytes(4) + int(R).to_bytes(4)
+
+    # encrypting multiple-8 length of bytes using blowfish cbc mode
+    def encrypt_cbc(self, data, init_vector=int(0).to_bytes(8)):
         S1, S2, S3, S4 = self.__S_boxes
         P = self.__dynamic_keys
-        u4_2_iter_unpack = self.u4_2_struct.iter_unpack
-        u4_1_pack = self.u4_1_struct.pack
-        u1_4_unpack = self.u1_4_struct.unpack
-        u4_2_pack = self.u4_2_struct.pack
         encrypt = self.__encrypt
 
-        try:
-            l_previous, r_previous = self.u4_2_struct.unpack(init_vector)
-        except:
+        if len(init_vector) != 8:
             raise ValueError("initialization vector is not 8 bytes in long")
+        l_previous, r_previous = int.from_bytes(init_vector[:4]), int.from_bytes(init_vector[4:])
 
-        try:
-            LR = u4_2_iter_unpack(data)
-        except:
+        if len(data) % 8 != 0:
             raise ValueError('data is not 8-bytes multiple in length')
+
+        LR = []
+        for i in range(0, len(data), 8):
+            LR.append((int.from_bytes(data[i:i+4]), int.from_bytes(data[i+4:i+8])))
 
         for L, R in LR:
-            l_previous, r_previous = encrypt(l_previous^L, r_previous^R, P, S1, S2, S3, S4, u4_1_pack, u1_4_unpack)
-            yield u4_2_pack(l_previous, r_previous)
+            l_previous, r_previous = encrypt(l_previous^L, r_previous^R, P, S1, S2, S3, S4)
+            yield int(l_previous).to_bytes(4) + int(r_previous).to_bytes(4)
 
-    def decrypt_cbc(self, data, init_vector=struct.pack('>2I', 0, 0)):
+    # decrypting multiple-8 length of bytes using blowfish cbc mode
+    def decrypt_cbc(self, data, init_vector=int(0).to_bytes(8)):
         S1, S2, S3, S4 = self.__S_boxes
         P = self.__dynamic_keys
-        u4_1_pack = self.u4_1_struct.pack
-        u1_4_unpack = self.u1_4_struct.unpack
         decrypt = self.__decrypt
-        u4_2_pack = self.u4_2_struct.pack
 
-        try:
-            l_previous, r_previous = self.u4_2_struct.unpack(init_vector)
-        except:
-            raise ValueError('initialization vector is not 8-bytes long')
+        if len(init_vector) != 8:
+            raise ValueError("initialization vector is not 8 bytes in long")
+        l_previous, r_previous = int.from_bytes(init_vector[:4]), int.from_bytes(init_vector[4:])
 
-        try:
-            LR = self.u4_2_struct.iter_unpack(data)
-        except:
+        if len(data) % 8 != 0:
             raise ValueError('data is not 8-bytes multiple in length')
 
+        LR = []
+        for i in range(0, len(data), 8):
+            LR.append((int.from_bytes(data[i:i+4]), int.from_bytes(data[i+4:i+8])))
+
         for ciph_l, ciph_r in LR:
-            L, R = decrypt(ciph_l, ciph_r, P, S1, S2, S3, S4, u4_1_pack, u1_4_unpack)
-            yield u4_2_pack(l_previous^L, r_previous^R)
+            L, R = decrypt(ciph_l, ciph_r, P, S1, S2, S3, S4)
+            yield int(l_previous ^ L).to_bytes(4) + int(r_previous ^ R).to_bytes(4)
             l_previous = ciph_l
             r_previous = ciph_r
 
+    # encrypting multiple-8 length of bytes using blowfish mgm mode
+    def encrypt_mgm(self, nonce, plaintext, protected_data):
+        n = self.n
+        enc = self.feisty_net_encr
+        bytes_to_bin = self._bytes_to_bin
+        int_to_bytes = self._int_to_bytes
+        bytes_to_int = self._bytes_to_int
+        incr_right = self._incr_right
+        incr_left = self._incr_left
+        multiply = self._multiplying_of_polinoms
+
+        nonce = bytes_to_bin(nonce).rjust(n-1, '0')
+
+        nonce_to_encrypt = int(('0' + nonce), 2)
+        gammas = []
+        cipher_text = []
+
+        for i in range(0, len(plaintext), n // 8):
+            if not gammas:
+                gammas.append(enc(int_to_bytes(nonce_to_encrypt)))
+                cipher_text.append(int_to_bytes(bytes_to_int(enc(gammas[-1])) ^ bytes_to_int(plaintext[i:i+n//8])))
+                continue
+            gammas.append(incr_right(gammas[-1]))
+            if len(plaintext[i:i + n // 8]) == n // 8:
+                cipher_text.append(int_to_bytes(bytes_to_int(enc(gammas[-1])) ^ bytes_to_int(plaintext[i:i + n // 8])))
+            else:
+                curr_plaintext_block = plaintext[i:i + n // 8]
+                curr_len_block = len(curr_plaintext_block)
+                cipher_text.append(
+                    int_to_bytes(bytes_to_int(enc(gammas[-1])[:curr_len_block]) ^ bytes_to_int(plaintext[i:i + n // 8]), curr_len_block))
+
+        cipher_text_res = b''.join(cipher_text)
+
+        cnt = (len(protected_data) // (n // 8) + (len(protected_data) % (n // 8) != 0)) + (
+                    len(cipher_text_res) // (n // 8) + (len(cipher_text_res) % (
+                        n // 8) != 0)) + 1  # h + q + 1. h- количество блоков имитозащищаемых данных, q - количество блоков шифртекста
+        Zs = []
+        Hs = []
+        nonce_to_encrypt = int('1' + nonce, 2)
+        nonce_to_encrypt = int_to_bytes(nonce_to_encrypt)
+        for i in range(cnt):
+            if not Zs:
+                Zs.append(enc(nonce_to_encrypt))
+                Hs.append(enc(Zs[-1]))
+                continue
+            Zs.append(incr_left(Zs[-1]))
+            Hs.append(enc(Zs[-1]))
+
+        j = 0
+        result_T = 0
+        for i in range(0, len(protected_data), n // 8):
+            curr_block_protected_data = protected_data[i:i + n // 8]
+            while len(curr_block_protected_data) != n // 8:
+                curr_block_protected_data += int(0).to_bytes(1)
+            result_T ^= multiply(curr_block_protected_data, Hs[j])
+            j += 1
+
+        for i in range(0, len(cipher_text_res), n // 8):
+            curr_block_cipher_text_res = cipher_text_res[i:i + n // 8]
+            while len(curr_block_cipher_text_res) != n // 8:
+                curr_block_cipher_text_res += int(0).to_bytes(1)
+            result_T ^= multiply(curr_block_cipher_text_res, Hs[j])
+            j += 1
+
+        lenA = int_to_bytes(len(protected_data) * 8)
+        lenC = int_to_bytes(len(cipher_text_res) * 8)
+
+        lenA_lenC = lenA.rjust(n // 16, int(0).to_bytes(1)) + lenC.rjust(n // 16, int(0).to_bytes(1))
+
+        result_T ^= multiply(lenA_lenC, Hs[j])
+        result_T = int_to_bytes(result_T)
+        result_T = enc(result_T)
+
+        return int_to_bytes(int(nonce, 2)), protected_data, cipher_text_res, result_T
+
+    # decrypting multiple-8 length of bytes using blowfish mgm mode
+    def decrypt_mgm(self, nonce, ciphertext, protected_data, T):
+        n = self.n
+        enc = self.feisty_net_encr
+        bytes_to_bin = self._bytes_to_bin
+        int_to_bytes = self._int_to_bytes
+        bytes_to_int = self._bytes_to_int
+        incr_right = self._incr_right
+        incr_left = self._incr_left
+        multiply = self._multiplying_of_polinoms
+
+        nonce = bytes_to_bin(nonce).rjust(n - 1, '0')
+
+        cnt = (len(protected_data) // (n // 8) + (len(protected_data) % (n // 8) != 0)) + (
+                    len(ciphertext) // (n // 8) + (len(ciphertext) % (
+                        n // 8) != 0)) + 1  # h + q + 1. h- количество блоков имитозащищаемых данных, q - количество блоков шифртекста
+        Zs = []
+        Hs = []
+        nonce_to_encrypt = int('1' + nonce, 2)
+        nonce_to_encrypt = int_to_bytes(nonce_to_encrypt)
+        for i in range(cnt):
+            if not Zs:
+                Zs.append(enc(nonce_to_encrypt))
+                Hs.append(enc(Zs[-1]))
+                continue
+            Zs.append(incr_left(Zs[-1]))
+            Hs.append(enc(Zs[-1]))
+
+        j = 0
+        result_T = 0
+        for i in range(0, len(protected_data), n // 8):
+            curr_block_protected_data = protected_data[i:i + n // 8]
+            while len(curr_block_protected_data) != n // 8:
+                curr_block_protected_data += int(0).to_bytes(1)
+            result_T ^= multiply(curr_block_protected_data, Hs[j])
+            j += 1
+
+        for i in range(0, len(ciphertext), n // 8):
+            curr_block_ciphertext = ciphertext[i:i + n // 8]
+            while len(curr_block_ciphertext) != n // 8:
+                curr_block_ciphertext += int(0).to_bytes(1)
+            result_T ^= multiply(curr_block_ciphertext, Hs[j])
+            j += 1
+
+        lenA = int_to_bytes(len(protected_data) * 8)
+        lenC = int_to_bytes(len(ciphertext) * 8)
+
+        lenA_lenC = lenA.rjust(n // 16, int(0).to_bytes(1)) + lenC.rjust(n // 16, int(0).to_bytes(1))
+
+        result_T ^= multiply(lenA_lenC, Hs[j])
+        result_T = int_to_bytes(result_T)
+        result_T = enc(result_T)
+
+        if result_T != T:
+            raise ValueError('Your protected data is not correct. Decryption declined')
+
+        nonce_to_encrypt = int(('0' + nonce), 2)
+        nonce_to_encrypt = int_to_bytes(nonce_to_encrypt)
+        gammas = []
+        plaintext = b''
+
+        for i in range(0, len(ciphertext), n // 8):
+            if not gammas:
+                gammas.append(enc(nonce_to_encrypt))
+            else:
+                gammas.append(incr_right(gammas[-1]))
+            curr_block_ciphertext = ciphertext[i:i + n // 8]
+            len_curr_block_ciphertext = len(curr_block_ciphertext)
+            plaintext += int_to_bytes(
+                bytes_to_int(enc(gammas[-1])[:len_curr_block_ciphertext]) ^ bytes_to_int(curr_block_ciphertext),
+                len(curr_block_ciphertext)
+            )
+
+        return plaintext, protected_data
+    # PRIVATE METHODS. Used only in BlowCrypt class algorithm and not beyond
+
+    def _divide_by_primitive_polinom(self, lst):
+        n = self.n
+        addition_of_polinoms = self._addition_of_polinoms
+        deg, element = 0, 0
+        for i in lst[::-1]:
+            if i[1]:
+                deg = i[0]
+                break
+        curr_lst2 = [0] * (n + 1)
+        if n == 128:
+            curr_lst2[0], curr_lst2[1], curr_lst2[2], curr_lst2[7], curr_lst2[128] = 1, 1, 1, 1, 1
+        elif n == 64:
+            curr_lst2[64], curr_lst2[4], curr_lst2[3], curr_lst2[1], curr_lst2[0] = 1, 1, 1, 1, 1
+        for _ in range(deg - n):
+            curr_lst2.insert(0, 0)
+        result = addition_of_polinoms(curr_lst2, [i[1] for i in lst])
+        result = result[::-1]
+        for _ in range(len(result)):
+            if not result[0]:
+                del result[0]
+                continue
+            result = result[::-1]
+            break
+        if len(result) > n:
+            return self._divide_by_primitive_polinom([(i, el) for i, el in enumerate(result)])
+        else:
+            return result
+
+    def _multiplying_of_polinoms(self, lst1, lst2):
+        addition_of_polinoms = self._addition_of_polinoms
+        n = self.n
+        divide_by_primitive_polinom = self._divide_by_primitive_polinom
+        bytes_to_bin = self._bytes_to_bin
+
+        lst1 = bytes_to_bin(lst1)
+        lst2 = bytes_to_bin(lst2)
+        lst1 = [*map(int, list(lst1[::-1]))]
+        lst2 = [*map(int, list(lst2[::-1]))]
+        result = []
+        for ind, el in enumerate(lst1):
+            curr_lst2 = lst2[:]
+            if el:
+                for _ in range(ind):
+                    curr_lst2.insert(0, 0)
+                result = addition_of_polinoms(result, curr_lst2)
+        if len(result) > n:
+            result = divide_by_primitive_polinom([(i, el) for i, el in enumerate(result)])
+        return int('0' * (n - len(result)) + ''.join(map(str, result[::-1])), 2)
+
+    def _incr_left(self, num):
+        n = self.n
+        bytes_to_int = self._bytes_to_int
+        int_to_bytes = self._int_to_bytes
+
+        mid = len(num) // 2
+        left = num[:mid]
+        right = num[mid:]
+        left = int_to_bytes((bytes_to_int(left) + 1) % 2 ** (n//2), mid)
+        return left + right
+
+    def _incr_right(self, num):
+        n = self.n
+        bytes_to_int = self._bytes_to_int
+        int_to_bytes = self._int_to_bytes
+
+        mid = len(num) // 2
+        left = num[:mid]
+        right = num[mid:]
+        right = int_to_bytes((bytes_to_int(right) + 1) % 2 ** (n//2), mid)
+        return left + right
+
+    # STATIC METHODS
+
     @staticmethod
-    def __encrypt(L, R, P, S1, S2, S3, S4, u4_1_pack, u1_4_unpack):
+    def __encrypt(L, R, P, S1, S2, S3, S4):
         for p1, p2 in P[:-1]:
             L ^= p1
-            a, b, c, d = u1_4_unpack(u4_1_pack(L))
+            a, b, c, d = L.to_bytes(4)
             R ^= (S1[a] + S2[b] ^ S3[c]) + S4[d] & 0xffffffff
             R ^= p2
-            a, b, c, d = u1_4_unpack(u4_1_pack(R))
+            a, b, c, d = R.to_bytes(4)
             L ^= (S1[a] + S2[b] ^ S3[c]) + S4[d] & 0xffffffff
         p_17, p_18 = P[-1]
         return R ^ p_18, L ^ p_17
 
     @staticmethod
-    def __decrypt(L, R, P, S1, S2, S3, S4, u4_1_pack, u1_4_unpack):
+    def __decrypt(L, R, P, S1, S2, S3, S4):
         for p2, p1 in P[:0:-1]:
             L ^= p1
-            a, b, c, d = u1_4_unpack(u4_1_pack(L))
+            a, b, c, d = L.to_bytes(4)
             R ^= (S1[a] + S2[b] ^ S3[c]) + S4[d] & 0xffffffff
             R ^= p2
-            a, b, c, d = u1_4_unpack(u4_1_pack(R))
+            a, b, c, d = R.to_bytes(4)
             L ^= (S1[a] + S2[b] ^ S3[c]) + S4[d] & 0xffffffff
         p_first, p_second = P[0]
         return R ^ p_first, L ^ p_second
+
+    @staticmethod
+    def _addition_of_polinoms(lst1, lst2):
+        new_arr = [*map(lambda x: x[0] ^ x[1], zip(lst1, lst2))]
+        new_arr = new_arr + max(lst1, lst2, key=len)[len(max(lst1, lst2, key=len)) - (abs(len(lst1) - len(lst2))):]
+        return new_arr
+
+    @staticmethod
+    def _bytes_to_bin(n):
+        return bin(int.from_bytes(n))[2:]
+
+    @staticmethod
+    def _int_to_bytes(n, number=8):
+        return int(n).to_bytes(number)
+
+    @staticmethod
+    def _bytes_to_int(n):
+        return int.from_bytes(n)
+
+    @staticmethod
+    def _hex_to_int(n):
+        return int(n, 16)
+
+
+def hex_to_bytes(n):
+    res = b''
+    for i in range(0, len(n), 2):
+        res += int(n[i:i+2], 16).to_bytes(1)
+    return res
+
+
+def bytes_to_hex(n):
+    res = ''
+    for i in n:
+        res += hex(i)[2:].rjust(2, '0')
+    return res
 
 
 def ets_crypt(encr_obj, b_file, file_directory):
@@ -404,7 +652,7 @@ def ets_crypt(encr_obj, b_file, file_directory):
         while decr_byte[0] == 0:
             decr_byte = decr_byte[1:]
             if not decr_byte:
-                decr_byte = struct.pack('b', 0)
+                decr_byte = int(0).to_bytes(1)
                 break
         print('Your decrypted file is: ', decr_byte, sep='\n')
         with open(file_directory, 'wb') as file:
@@ -422,8 +670,7 @@ def cbc_crypt(encr_obj, b_file, file_directory):
         'Your choose is: ')
     if e_or_d == '1':
         iv = input('Enter initializing vector for CBC-mode encryption: ').encode()[:8]
-        print(len(iv))
-        iv = struct.pack('b', 0) * (8 - len(iv)) + iv
+        iv = int(0).to_bytes(1) * (8 - len(iv)) + iv
         encr_byte = b''.join(encr_obj.encrypt_cbc(b_file, iv))
         print('Your encrypted file is: ', encr_byte, sep='\n')
         with open(file_directory, 'wb') as file:
@@ -431,7 +678,7 @@ def cbc_crypt(encr_obj, b_file, file_directory):
             print('This file was encrypted. Check it out!')
     elif e_or_d == '2':
         iv = input('Enter initializing vector for CBC-mode decryption: ').encode()[:8]
-        iv = struct.pack('b', 0) * (8 - len(iv)) + iv
+        iv = int(0).to_bytes(1) * (8 - len(iv)) + iv
         decr_byte = b''.join(encr_obj.decrypt_cbc(b_file, iv))
         if not decr_byte:
             print('Your decrypted file is: ', decr_byte, sep='\n')
@@ -442,7 +689,7 @@ def cbc_crypt(encr_obj, b_file, file_directory):
         while decr_byte[0] == 0:
             decr_byte = decr_byte[1:]
             if not decr_byte:
-                decr_byte = struct.pack('b', 0)
+                decr_byte = int(0).to_bytes(1)
                 break
         print('Your decrypted file is: ', decr_byte, sep='\n')
         with open(file_directory, 'wb') as file:
@@ -451,6 +698,34 @@ def cbc_crypt(encr_obj, b_file, file_directory):
     else:
         print('There is no such option')
 
+
+def mgm_crypt(encr_obj, b_file, file_directory):
+    e_or_d = input(
+        'Choose whether you want to encrypt or decrypt this file: \n'
+        '1. Encrypt; \n'
+        '2. Decrypt. \n'
+        'Your choose is: ')
+    if e_or_d == '1':
+        nonce = hex_to_bytes(input('Enter nonce vector (use heximal interpretation of bytes): '))
+        protected_data = input('Enter protected data: ').encode()
+        res = encr_obj.encrypt_mgm(nonce, b_file, protected_data)
+        print('Your encrypted file is: ', res[2], f'Encrypted using protected data {res[1]}',
+              f'Message authentication code: {bytes_to_hex(res[3])}, bytes: {res[3]}', sep='\n')
+        with open(file_directory, 'wb') as file:
+            file.write(res[2])
+            print('This file was encrypted. Check it out!')
+    elif e_or_d == '2':
+        nonce = hex_to_bytes(input('Enter nonce vector (use heximal interpretation of bytes): '))
+        protected_data = input('Enter protected data: ').encode()
+        mac = hex_to_bytes(input('Enter message authentication code (use heximal interpretation of bytes): '))
+        res = encr_obj.decrypt_mgm(nonce, b_file, protected_data, mac)
+        print('Your decrypted file is: ', res[1], 'Message authentication code accepted', f'Protected data used while decryption: {res[0]}',sep='\n')
+        with open(file_directory, 'wb') as file:
+            file.write(res[0])
+            print('This file was decrypted. Check it out!')
+        return
+    else:
+        print('There is no such option')
 
 def main():
     file_directory = input('Enter file directory (related or absolute): ')
@@ -463,6 +738,7 @@ def main():
     mode = input('Choose mode of encrypting: \n'
                  '1. ETS mode; \n'
                  '2. CBC mode; \n'
+                 '3. MGM mode; \n'
                  'Your choose is: ')
     while True:
         key = input('Enter key to cipher (string type is preferable): ').encode()
@@ -475,12 +751,15 @@ def main():
         break
 
     if len(byte_file) % 8 != 0:
-        byte_file = struct.pack('b', 0) * (8 - (len(byte_file) % 8)) + byte_file
+        byte_file = int(0).to_bytes(1) * (8 - (len(byte_file) % 8)) + byte_file
+
     EncryptObject = BlowCrypt(key)
     if mode == '1':
         ets_crypt(EncryptObject, byte_file, file_directory)
     elif mode == '2':
         cbc_crypt(EncryptObject, byte_file, file_directory)
+    elif mode == '3':
+        mgm_crypt(EncryptObject, byte_file, file_directory)
     else:
         print('There is no such option')
     return

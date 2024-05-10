@@ -118,10 +118,6 @@ def transform(state_in, times):
     for _ in range(times):
         #1. modulo
         for i in range(16):
-            # print(x[i^16], x[i])
-            # print(int.from_bytes(x[i^16], 'little'), int.from_bytes(x[i], 'little'))
-            # print(int.from_bytes(x[i^16], 'little') + int.from_bytes(x[i], 'little'))
-            # print((int.from_bytes(x[i ^ 16], 'little') + int.from_bytes(x[i], 'little')) % 2**32)
             x[i^16] = int((int.from_bytes(x[i^16], 'little') + int.from_bytes(x[i], 'little')) % (2**32)).to_bytes(4, 'little')
 
         #2. rotation
@@ -135,7 +131,6 @@ def transform(state_in, times):
         #3. swap
         for i in range(8):
             x[i], x[i^8] = x[i^8], x[i]
-
 
         #4. xor
         for i in range(16):
@@ -157,13 +152,14 @@ def transform(state_in, times):
             el_bits = el_bits[11:] + el_bits[:11]
             x[i] = b''.join([int(el_bits[j:j+8], 2).to_bytes(1) for j in range(0, len(el_bits), 8)])
 
+
         #8. swap
         for i in [0, 1, 2, 3, 8, 9, 10, 11]:
-            x[i], x[i^4] = x[i^4], x[i]
+            x[i], x[i ^ 4] = x[i ^ 4], x[i]
 
         #9. xor
         for i in range(16):
-            x[i] = (int.from_bytes(x[i^16], 'little') ^ int.from_bytes(x[i], 'little')).to_bytes(4, 'little')
+            x[i] = (int.from_bytes(x[i ^ 16], 'little') ^ int.from_bytes(x[i], 'little')).to_bytes(4, 'little')
 
         #10. swap
         for i in [16, 18, 20, 22, 24, 26, 28, 30]:
@@ -171,13 +167,14 @@ def transform(state_in, times):
 
     return b''.join(x)
 
+
 # I = 16  # количество раундов для инициализации state-a
 r = 8  # количество раундов на одну трансформацию state-a
 I = 10*r
 b = 1  # количество байтов, которые мы будем считать одним блоком
 # f = 32  # количество раундов финализации. Перед выводом хеша мы будем еще f раз трансформировать state
 f = 10*r
-h = 256  # количество выводимых битов
+h = 512  # количество выводимых битов
 
 
 state = b''  # инициализируем state как байтовую строку
@@ -185,7 +182,6 @@ for i in [h//8, b, r]:
     state += i.to_bytes(4, 'little')  # устанавливаем первые 3 4-байтовых слова как h//8, b, r соответственно
 while len(state) != 128:
     state += int(0).to_bytes(1)  # дополняем оставшиеся 29 слов 0-выми словами. Они содержат каждый по 4 байта \x00, поэтому просто прибавляем 0-вые байты, пока длина не станет равна 128
-print(state)
 state = transform(state, I)  # трансформируем state I раз
 print(''.join(map(lambda x: hex(x)[2:], state)))
 
@@ -204,5 +200,5 @@ for k in range(0, len(message), b):
 hello = '7ce309a25e2e1603ca0fc369267b4d43f0b1b744ac45d6213ca08e75675664448e2f62fdbf7bbd637ce40fc293286d75b9d09e8dda31bd029113e02ecccfd39b'
 
 state = finalize(state, f)
-final_hash = ''.join(map(lambda x: hex(x)[2:].rjust(2, '0'), state))
-print(final_hash == hello)
+final_hash = ''.join(map(lambda x: hex(x)[2:].rjust(2, '0'), state))[:(h//8)]
+print(final_hash)
