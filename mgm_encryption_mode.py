@@ -74,6 +74,8 @@ nonce = '1122334455667700FFEEDDCCBBAA9988'
 plaintext = '1122334455667700FFEEDDCCBBAA998800112233445566778899AABBCCEEFF0A112233445566778899AABBCCEEFF0A002233445566778899AABBCCEEFF0A0011AABBCC'
 protected_data = '0202020202020202010101010101010104040404040404040303030303030303EA0505050505050505'
 
+print(f'Вход:\n1. Открытый текст: {plaintext}')
+
 nonce = bin(int(nonce, 16))[2:].rjust(n-1, '0')
 
 nonce_to_encrypt = int(('0' + nonce), 2)
@@ -200,4 +202,5 @@ for i in range(0, len(ciphertext), n//4):
     gammas.append(incr_right(gammas[-1]))
 
 plaintext = plaintext[:len(ciphertext)]
+
 print(f'Результат расшифрования:\n1. Открытый текст: {plaintext}\n2. Дополнительные имитозащищаемые данные: {protected_data.lower()}')

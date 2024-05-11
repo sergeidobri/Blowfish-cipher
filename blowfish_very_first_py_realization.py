@@ -12,6 +12,7 @@ class BlowCrypt:
     3. MGM-mode encryption.
     """
     n = 64  # length of block in bits
+
     __Pi_keys = (  # the hexadecimal 4-bytes interpretations of Pi
         0x243f6a88, 0x85a308d3, 0x13198a2e, 0x03707344, 0xa4093822, 0x299f31d0,
         0x082efa98, 0xec4e6c89, 0x452821e6, 0x38d01377, 0xbe5466cf, 0x34e90c6c,
@@ -229,9 +230,10 @@ class BlowCrypt:
                 box[i] = L                                      # чисел
                 box[i + 1] = R
         self.__S_boxes = S
+        self.key = key  # for Kuznechik
 
     # encrypting of 1 single block of 8 bytes
-    def feisty_net_encr(self, block):
+    def feisty_net_encr(self, block, *args):
         S0, S1, S2, S3 = self.__S_boxes
         P = self.__dynamic_keys
         if len(block) != 8:  # если блок не 8 байтов, выкидываем ошибку
@@ -344,16 +346,22 @@ class BlowCrypt:
             l_previous = ciph_l
             r_previous = ciph_r
 
+    encr_object = None
+    encrypt = feisty_net_encr
+
     # encrypting multiple-8 length of bytes using blowfish mgm mode
     def encrypt_mgm(self, nonce, plaintext, protected_data):
         n = self.n
-        enc = self.feisty_net_encr
         bytes_to_bin = self._bytes_to_bin
         int_to_bytes = self._int_to_bytes
         bytes_to_int = self._bytes_to_int
         incr_right = self._incr_right
         incr_left = self._incr_left
         multiply = self._multiplying_of_polinoms
+        encr_object = self.encr_object
+        if encr_object is None:
+            encr_object = self
+        enc = encr_object.encrypt
 
         nonce = bytes_to_bin(nonce).rjust(n-1, '0')
 
@@ -408,10 +416,10 @@ class BlowCrypt:
             result_T ^= multiply(curr_block_cipher_text_res, Hs[j])
             j += 1
 
-        lenA = int_to_bytes(len(protected_data) * 8)
-        lenC = int_to_bytes(len(cipher_text_res) * 8)
+        lenA = int_to_bytes(len(protected_data) * 8, n//16)
+        lenC = int_to_bytes(len(cipher_text_res) * 8, n//16)
 
-        lenA_lenC = lenA.rjust(n // 16, int(0).to_bytes(1)) + lenC.rjust(n // 16, int(0).to_bytes(1))
+        lenA_lenC = lenA + lenC
 
         result_T ^= multiply(lenA_lenC, Hs[j])
         result_T = int_to_bytes(result_T)
@@ -422,19 +430,23 @@ class BlowCrypt:
     # decrypting multiple-8 length of bytes using blowfish mgm mode
     def decrypt_mgm(self, nonce, ciphertext, protected_data, T):
         n = self.n
-        enc = self.feisty_net_encr
         bytes_to_bin = self._bytes_to_bin
         int_to_bytes = self._int_to_bytes
         bytes_to_int = self._bytes_to_int
         incr_right = self._incr_right
         incr_left = self._incr_left
         multiply = self._multiplying_of_polinoms
+        encr_object = self.encr_object
+        if encr_object is None:
+            encr_object = self
+        enc = encr_object.encrypt
+
 
         nonce = bytes_to_bin(nonce).rjust(n - 1, '0')
 
         cnt = (len(protected_data) // (n // 8) + (len(protected_data) % (n // 8) != 0)) + (
-                    len(ciphertext) // (n // 8) + (len(ciphertext) % (
-                        n // 8) != 0)) + 1  # h + q + 1. h- количество блоков имитозащищаемых данных, q - количество блоков шифртекста
+                len(ciphertext) // (n // 8) + (len(ciphertext) % (
+                n // 8) != 0)) + 1  # h + q + 1. h- количество блоков имитозащищаемых данных, q - количество блоков шифртекста
         Zs = []
         Hs = []
         nonce_to_encrypt = int('1' + nonce, 2)
@@ -457,16 +469,16 @@ class BlowCrypt:
             j += 1
 
         for i in range(0, len(ciphertext), n // 8):
-            curr_block_ciphertext = ciphertext[i:i + n // 8]
-            while len(curr_block_ciphertext) != n // 8:
-                curr_block_ciphertext += int(0).to_bytes(1)
-            result_T ^= multiply(curr_block_ciphertext, Hs[j])
+            curr_block_cipher_text_res = ciphertext[i:i + n // 8]
+            while len(curr_block_cipher_text_res) != n // 8:
+                curr_block_cipher_text_res += int(0).to_bytes(1)
+            result_T ^= multiply(curr_block_cipher_text_res, Hs[j])
             j += 1
 
-        lenA = int_to_bytes(len(protected_data) * 8)
-        lenC = int_to_bytes(len(ciphertext) * 8)
+        lenA = int_to_bytes(len(protected_data) * 8, n // 16)
+        lenC = int_to_bytes(len(ciphertext) * 8, n // 16)
 
-        lenA_lenC = lenA.rjust(n // 16, int(0).to_bytes(1)) + lenC.rjust(n // 16, int(0).to_bytes(1))
+        lenA_lenC = lenA + lenC
 
         result_T ^= multiply(lenA_lenC, Hs[j])
         result_T = int_to_bytes(result_T)
@@ -566,6 +578,12 @@ class BlowCrypt:
         right = int_to_bytes((bytes_to_int(right) + 1) % 2 ** (n//2), mid)
         return left + right
 
+    def _int_to_bytes(self, n, number=None):
+        if number is None:
+            number = self.n // 8
+        return int(n).to_bytes(number)
+
+
     # STATIC METHODS
 
     @staticmethod
@@ -601,10 +619,6 @@ class BlowCrypt:
     @staticmethod
     def _bytes_to_bin(n):
         return bin(int.from_bytes(n))[2:]
-
-    @staticmethod
-    def _int_to_bytes(n, number=8):
-        return int(n).to_bytes(number)
 
     @staticmethod
     def _bytes_to_int(n):
@@ -735,6 +749,7 @@ def main():
     except:
         raise FileNotFoundError('File was not found')
 
+    print(len(byte_file))
     mode = input('Choose mode of encrypting: \n'
                  '1. ETS mode; \n'
                  '2. CBC mode; \n'
