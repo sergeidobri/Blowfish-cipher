@@ -1,10 +1,7 @@
 blowfish_very_first_py_realization.py - main blowfish encryption algorithm.
-It has its own interface. Also, there is CubeHash algorithm as well.
 
-blowfish_vectors.txt - correctly ciphered vectors. Used to check whether 
-algorithm encrypts properly.
+cubehash.py - CubeHash hashing algorithm implemented in Python.
 
-test_blowfish.py - file with unittests. Proves that algorithm works propertly.
+data_for_tests - directory with text files, used for tests in file test_blowfish.py
 
-blowtest.txt - random text that is able to be either encrypted or decrypted by yourself.
-Originally it is 'Voyna i mir' by L.N.Tolstoy
+test_blowfish.py - file with unittests. Proves that algorithms works propertly.
