@@ -1,6 +1,11 @@
 import blowfish_very_first_py_realization as bl
 import unittest
 import gostcrypto
+import cubehash as cb
+
+# Tests for blowfish: https://www.schneier.com/wp-content/uploads/2015/12/vectors-2.txt
+# Tests for mgm: https://meganorm.ru/Data2/1/4293727/4293727270.pdf
+# Tests for cubehash: https://en.wikipedia.org/wiki/CubeHash
 
 
 def bytes_to_hex(num):
@@ -23,7 +28,7 @@ class BlowfishTest(unittest.TestCase):
     def load_vectors(self):
         vectors = []
         vectors_mgm = []
-        with open('blowfish_vectors', 'r') as file:
+        with open('data_for_tests/blowfish_vectors', 'r') as file:
             flag_mgm = False
             for line in file.readlines():
                 if line.strip() == 'MGM Magma':
@@ -37,27 +42,33 @@ class BlowfishTest(unittest.TestCase):
                 vectors.append((key, clear_bytes, cipher_bytes))
         return vectors, vectors_mgm
 
-    def test_ets_encrypt_decrypt(self):
+    def test_ets_encrypt_decrypt_1_block(self):
         key = self.test_key
         EncryptObject = bl.BlowCrypt(key)
         # 1 block:
-        with open('blowfish_testing_1_block', 'rb') as bl1:
+        with open('data_for_tests/blowfish_testing_1_block', 'rb') as bl1:
             block_1 = bl1.read().strip()
             my_bytes = b''.join(EncryptObject.encrypt_ets(block_1))
             my_decrypted_bytes = b''.join(EncryptObject.decrypt_ets(my_bytes))
 
             self.assertEqual(my_decrypted_bytes, block_1)
 
+    def test_ets_encrypt_decrypt_1000_blocks(self):
+        key = self.test_key
+        EncryptObject = bl.BlowCrypt(key)
         # 1_000 blocks:
-        with open('blowfish_testing_1000_blocks', 'rb') as bl1000:
+        with open('data_for_tests/blowfish_testing_1000_blocks', 'rb') as bl1000:
             block_1000 = bl1000.read().strip()
             my_bytes = b''.join(EncryptObject.encrypt_ets(block_1000))
             my_decrypted_bytes = b''.join(EncryptObject.decrypt_ets(my_bytes))
 
             self.assertEqual(my_decrypted_bytes, block_1000)
 
+    def test_ets_encrypt_decrypt_1000000_blocks(self):
+        key = self.test_key
+        EncryptObject = bl.BlowCrypt(key)
         # 1_000_000 blocks:
-        with open('blowfish_testing_1000000_blocks', 'rb') as bl1000000:
+        with open('data_for_tests/blowfish_testing_1000000_blocks', 'rb') as bl1000000:
             block_1000000 = bl1000000.read().strip()
             my_bytes = b''.join(EncryptObject.encrypt_ets(block_1000000))
             my_decrypted_bytes = b''.join(EncryptObject.decrypt_ets(my_bytes))
@@ -71,28 +82,36 @@ class BlowfishTest(unittest.TestCase):
 
             self.assertEqual(b''.join(bl.BlowCrypt(key).decrypt_ets(my_bytes)), clear_bytes)
 
-    def test_cbc_encrypt_decrypt(self):
+    def test_cbc_encrypt_decrypt_1_block(self):
         key = self.test_key
         iv = self.test_initializing_vector
         EncryptObject = bl.BlowCrypt(key)
         # 1 block:
-        with open('blowfish_testing_1_block', 'rb') as bl1:
+        with open('data_for_tests/blowfish_testing_1_block', 'rb') as bl1:
             block_1 = bl1.read().strip()
             my_bytes = b''.join(EncryptObject.encrypt_cbc(block_1, iv))
             my_decrypted_bytes = b''.join(EncryptObject.decrypt_cbc(my_bytes, iv))
 
             self.assertEqual(my_decrypted_bytes, block_1)
 
+    def test_cbc_encrypt_decrypt_1000_blocks(self):
+        key = self.test_key
+        iv = self.test_initializing_vector
+        EncryptObject = bl.BlowCrypt(key)
         # 1_000 blocks:
-        with open('blowfish_testing_1000_blocks', 'rb') as bl1000:
+        with open('data_for_tests/blowfish_testing_1000_blocks', 'rb') as bl1000:
             block_1000 = bl1000.read().strip()
             my_bytes = b''.join(EncryptObject.encrypt_cbc(block_1000, iv))
             my_decrypted_bytes = b''.join(EncryptObject.decrypt_cbc(my_bytes, iv))
 
             self.assertEqual(my_decrypted_bytes, block_1000)
 
+    def test_cbc_encrypt_decrypt_1000000_block(self):
+        key = self.test_key
+        iv = self.test_initializing_vector
+        EncryptObject = bl.BlowCrypt(key)
         # 1_000_000 blocks:
-        with open('blowfish_testing_1000000_blocks', 'rb') as bl1000000:
+        with open('data_for_tests/blowfish_testing_1000000_blocks', 'rb') as bl1000000:
             block_1000000 = bl1000000.read().strip()
             my_bytes = b''.join(EncryptObject.encrypt_cbc(block_1000000, iv))
             my_decrypted_bytes = b''.join(EncryptObject.decrypt_cbc(my_bytes, iv))
@@ -115,13 +134,13 @@ class BlowfishTest(unittest.TestCase):
         my_decrypted_bytes = res[0]
         self.assertEqual(my_decrypted_bytes, clear_bytes)
 
-    def test_mgm_encrypt_decrypt(self):
+    def test_mgm_encrypt_decrypt_1_block(self):
         key = self.test_key
         nonce = self.test_nonce
         protected_data = self.test_protected_data
         EncryptObject = bl.BlowCrypt(key)
         # 1 block:
-        with open('blowfish_testing_1_block', 'rb') as bl1:
+        with open('data_for_tests/blowfish_testing_1_block', 'rb') as bl1:
             block_1 = bl1.read().strip()
             res_encr = EncryptObject.encrypt_mgm(nonce, block_1, protected_data)
             my_bytes = res_encr[2]
@@ -131,8 +150,13 @@ class BlowfishTest(unittest.TestCase):
 
             self.assertEqual(my_decrypted_bytes, block_1)
 
+    def test_mgm_encrypt_decrypt_1000_blocks(self):
+        key = self.test_key
+        nonce = self.test_nonce
+        protected_data = self.test_protected_data
+        EncryptObject = bl.BlowCrypt(key)
         # 1_000 blocks:
-        with open('blowfish_testing_1000_blocks', 'rb') as bl1000:
+        with open('data_for_tests/blowfish_testing_1000_blocks', 'rb') as bl1000:
             block_1000 = bl1000.read().strip()
             res_encr = EncryptObject.encrypt_mgm(nonce, block_1000, protected_data)
             my_bytes = res_encr[2]
@@ -142,8 +166,13 @@ class BlowfishTest(unittest.TestCase):
 
             self.assertEqual(my_decrypted_bytes, block_1000)
 
+    def test_mgm_encrypt_decrypt_1000000_blocks(self):
+        key = self.test_key
+        nonce = self.test_nonce
+        protected_data = self.test_protected_data
+        EncryptObject = bl.BlowCrypt(key)
         # 1_000_000 blocks:
-        with open('blowfish_testing_1000000_blocks', 'rb') as bl1000000:
+        with open('data_for_tests/blowfish_testing_1000000_blocks', 'rb') as bl1000000:
             block_1000000 = bl1000000.read().strip()
             res_encr = EncryptObject.encrypt_mgm(nonce, block_1000000, protected_data)
             my_bytes = res_encr[2]
@@ -159,6 +188,64 @@ class BlowfishTest(unittest.TestCase):
         for i in range(0, len(data), 2):
             res += int(data[i:i+2], 16).to_bytes(1)
         return res
+
+
+class CubeHashTest(unittest.TestCase):
+    def setUp(self):
+        self.hashes, self.initial_states = self.load_hashes()
+        print(self.hashes)
+        print(self.initial_states)
+
+    def load_hashes(self):
+        flag_hash = False
+        initial_states = []
+        hashes = []
+        with open('data_for_tests/cubehash_vectors', 'r') as file:
+            lines = [*map(lambda l: l.strip(), file.readlines())]
+            for line in lines:
+                if line == 'initial':
+                    continue
+                elif line == 'hash':
+                    flag_hash = True
+                    continue
+                if flag_hash:
+                    i, r, b, f, h, message, hash_result = line.split('_')
+                    i, r, b, f, h = int(i), int(r), int(b), int(f), int(h)
+                    if message == 'zero-string':
+                        message = ''
+                    hashes.append((i, r, b, f, h, message, hash_result))
+                    continue
+                i, r, b, f, h, initial_state = line.split('_')
+                i, r, b, f, h = int(i), int(r), int(b), int(f), int(h)
+                initial_states.append((i, r, b, f, h, initial_state))
+        return hashes, initial_states
+
+    def test_initialize_wiki_tests(self):
+        for (i, r, b, f, h, initial_state) in self.initial_states:
+            my_init = cb.CubeHash(i, r, b, f, h).get_state_for_check()
+
+            self.assertEqual(my_init, initial_state)
+
+    def test_hashing_wiki_tests(self):
+        for (i, r, b, f, h, message, hash_result) in self.hashes:
+            my_hash = cb.CubeHash(i, r, b, f, h).hash(message)
+
+            self.assertEqual(my_hash, hash_result)
+
+    def test_speed_of_hashing_1_block(self):
+        # i, r, b, f, h were taken from the main specification of algorithm: https://cubehash.cr.yp.to/index.html
+        with open('data_for_tests/cubehash_testing_1_block', 'r') as file:
+            cb.CubeHash(16, 16, 32, 32, 512).hash(file.read())
+
+    def test_speed_of_hashing_1000_blocks(self):
+        # i, r, b, f, h were taken from the main specification of algorithm: https://cubehash.cr.yp.to/index.html
+        with open('data_for_tests/cubehash_testing_1000_blocks', 'r') as file:
+            cb.CubeHash(16, 16, 32, 32, 512).hash(file.read())
+
+    def test_speed_of_hashing_1000000_blocks(self):
+        # i, r, b, f, h were taken from the main specification of algorithm: https://cubehash.cr.yp.to/index.html
+        with open('data_for_tests/cubehash_testing_1000000_blocks', 'r') as file:
+            cb.CubeHash(16, 16, 32, 32, 512).hash(file.read())
 
 
 if __name__ == '__main__':

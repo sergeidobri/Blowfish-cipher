@@ -230,7 +230,6 @@ class BlowCrypt:
                 box[i] = L                                      # чисел
                 box[i + 1] = R
         self.__S_boxes = S
-        self.key = key  # for Kuznechik
 
     # encrypting of 1 single block of 8 bytes
     def feisty_net_encr(self, block, *args):
@@ -366,66 +365,52 @@ class BlowCrypt:
         nonce = bytes_to_bin(nonce).rjust(n-1, '0')
 
         nonce_to_encrypt = int(('0' + nonce), 2)
-        gammas = []
-        cipher_text = []
+        gamma = enc(int_to_bytes(nonce_to_encrypt))
+        cipher_text = b''
 
         for i in range(0, len(plaintext), n // 8):
-            if not gammas:
-                gammas.append(enc(int_to_bytes(nonce_to_encrypt)))
-                cipher_text.append(int_to_bytes(bytes_to_int(enc(gammas[-1])) ^ bytes_to_int(plaintext[i:i+n//8])))
-                continue
-            gammas.append(incr_right(gammas[-1]))
             if len(plaintext[i:i + n // 8]) == n // 8:
-                cipher_text.append(int_to_bytes(bytes_to_int(enc(gammas[-1])) ^ bytes_to_int(plaintext[i:i + n // 8])))
+                cipher_text += int_to_bytes(bytes_to_int(enc(gamma)) ^ bytes_to_int(plaintext[i:i + n // 8]))
+
             else:
                 curr_plaintext_block = plaintext[i:i + n // 8]
                 curr_len_block = len(curr_plaintext_block)
-                cipher_text.append(
-                    int_to_bytes(bytes_to_int(enc(gammas[-1])[:curr_len_block]) ^ bytes_to_int(plaintext[i:i + n // 8]), curr_len_block))
+                cipher_text += int_to_bytes(bytes_to_int(enc(gamma)[:curr_len_block]) ^ bytes_to_int(plaintext[i:i + n // 8]), curr_len_block)
+            gamma = incr_right(gamma)
 
-        cipher_text_res = b''.join(cipher_text)
+        h = len(protected_data) // (n // 8) + (len(protected_data) % (n // 8) != 0)
+        q = len(cipher_text) // (n // 8) + (len(cipher_text) % (n // 8) != 0)
+        cnt = h + q + 1  # h- количество блоков имитозащищаемых данных, q - количество блоков шифртекста
 
-        cnt = (len(protected_data) // (n // 8) + (len(protected_data) % (n // 8) != 0)) + (
-                    len(cipher_text_res) // (n // 8) + (len(cipher_text_res) % (
-                        n // 8) != 0)) + 1  # h + q + 1. h- количество блоков имитозащищаемых данных, q - количество блоков шифртекста
-        Zs = []
-        Hs = []
         nonce_to_encrypt = int('1' + nonce, 2)
         nonce_to_encrypt = int_to_bytes(nonce_to_encrypt)
-        for i in range(cnt):
-            if not Zs:
-                Zs.append(enc(nonce_to_encrypt))
-                Hs.append(enc(Zs[-1]))
-                continue
-            Zs.append(incr_left(Zs[-1]))
-            Hs.append(enc(Zs[-1]))
-
-        j = 0
+        Z = enc(nonce_to_encrypt)
+        H = enc(Z)
         result_T = 0
-        for i in range(0, len(protected_data), n // 8):
-            curr_block_protected_data = protected_data[i:i + n // 8]
-            while len(curr_block_protected_data) != n // 8:
-                curr_block_protected_data += int(0).to_bytes(1)
-            result_T ^= multiply(curr_block_protected_data, Hs[j])
-            j += 1
+        for i in range(cnt):
+            if i < h:
+                curr_block_protected_data = protected_data[i*(n//8):i*(n//8) + n // 8]
+                while len(curr_block_protected_data) != n // 8:
+                    curr_block_protected_data += int(0).to_bytes(1)
+                result_T ^= multiply(curr_block_protected_data, H)
+            elif h <= i < h + q:
+                curr_block_cipher_text_res = cipher_text[(i-h)*(n//8):(i-h)*(n//8) + n//8]
+                while len(curr_block_cipher_text_res) != n // 8:
+                    curr_block_cipher_text_res += int(0).to_bytes(1)
+                result_T ^= multiply(curr_block_cipher_text_res, H)
+            elif i == h + q:
+                lenA = int_to_bytes(len(protected_data) * 8, n // 16)
+                lenC = int_to_bytes(len(cipher_text) * 8, n // 16)
 
-        for i in range(0, len(cipher_text_res), n // 8):
-            curr_block_cipher_text_res = cipher_text_res[i:i + n // 8]
-            while len(curr_block_cipher_text_res) != n // 8:
-                curr_block_cipher_text_res += int(0).to_bytes(1)
-            result_T ^= multiply(curr_block_cipher_text_res, Hs[j])
-            j += 1
+                lenA_lenC = lenA + lenC
 
-        lenA = int_to_bytes(len(protected_data) * 8, n//16)
-        lenC = int_to_bytes(len(cipher_text_res) * 8, n//16)
+                result_T ^= multiply(lenA_lenC, H)
+                result_T = int_to_bytes(result_T)
+                result_T = enc(result_T)
+            Z = incr_left(Z)
+            H = enc(Z)
 
-        lenA_lenC = lenA + lenC
-
-        result_T ^= multiply(lenA_lenC, Hs[j])
-        result_T = int_to_bytes(result_T)
-        result_T = enc(result_T)
-
-        return int_to_bytes(int(nonce, 2)), protected_data, cipher_text_res, result_T
+        return int_to_bytes(int(nonce, 2)), protected_data, cipher_text, result_T
 
     # decrypting multiple-8 length of bytes using blowfish mgm mode
     def decrypt_mgm(self, nonce, ciphertext, protected_data, T):
@@ -441,68 +426,56 @@ class BlowCrypt:
             encr_object = self
         enc = encr_object.encrypt
 
-
         nonce = bytes_to_bin(nonce).rjust(n - 1, '0')
 
-        cnt = (len(protected_data) // (n // 8) + (len(protected_data) % (n // 8) != 0)) + (
-                len(ciphertext) // (n // 8) + (len(ciphertext) % (
-                n // 8) != 0)) + 1  # h + q + 1. h- количество блоков имитозащищаемых данных, q - количество блоков шифртекста
-        Zs = []
-        Hs = []
+        h = len(protected_data) // (n // 8) + (len(protected_data) % (n // 8) != 0)
+        q = len(ciphertext) // (n // 8) + (len(ciphertext) % (n // 8) != 0)
+        cnt = h + q + 1  # h- количество блоков имитозащищаемых данных, q - количество блоков шифртекста
+
         nonce_to_encrypt = int('1' + nonce, 2)
         nonce_to_encrypt = int_to_bytes(nonce_to_encrypt)
-        for i in range(cnt):
-            if not Zs:
-                Zs.append(enc(nonce_to_encrypt))
-                Hs.append(enc(Zs[-1]))
-                continue
-            Zs.append(incr_left(Zs[-1]))
-            Hs.append(enc(Zs[-1]))
-
-        j = 0
+        Z = enc(nonce_to_encrypt)
+        H = enc(Z)
         result_T = 0
-        for i in range(0, len(protected_data), n // 8):
-            curr_block_protected_data = protected_data[i:i + n // 8]
-            while len(curr_block_protected_data) != n // 8:
-                curr_block_protected_data += int(0).to_bytes(1)
-            result_T ^= multiply(curr_block_protected_data, Hs[j])
-            j += 1
+        for i in range(cnt):
+            if i < h:
+                curr_block_protected_data = protected_data[i*(n//8):i*(n//8) + n // 8]
+                while len(curr_block_protected_data) != n // 8:
+                    curr_block_protected_data += int(0).to_bytes(1)
+                result_T ^= multiply(curr_block_protected_data, H)
+            elif h <= i < h + q:
+                curr_block_cipher_text_res = ciphertext[(i-h)*(n//8):(i-h)*(n//8) + n//8]
+                while len(curr_block_cipher_text_res) != n // 8:
+                    curr_block_cipher_text_res += int(0).to_bytes(1)
+                result_T ^= multiply(curr_block_cipher_text_res, H)
+            elif i == h + q:
+                lenA = int_to_bytes(len(protected_data) * 8, n // 16)
+                lenC = int_to_bytes(len(ciphertext) * 8, n // 16)
 
-        for i in range(0, len(ciphertext), n // 8):
-            curr_block_cipher_text_res = ciphertext[i:i + n // 8]
-            while len(curr_block_cipher_text_res) != n // 8:
-                curr_block_cipher_text_res += int(0).to_bytes(1)
-            result_T ^= multiply(curr_block_cipher_text_res, Hs[j])
-            j += 1
+                lenA_lenC = lenA + lenC
 
-        lenA = int_to_bytes(len(protected_data) * 8, n // 16)
-        lenC = int_to_bytes(len(ciphertext) * 8, n // 16)
-
-        lenA_lenC = lenA + lenC
-
-        result_T ^= multiply(lenA_lenC, Hs[j])
-        result_T = int_to_bytes(result_T)
-        result_T = enc(result_T)
+                result_T ^= multiply(lenA_lenC, H)
+                result_T = int_to_bytes(result_T)
+                result_T = enc(result_T)
+            Z = incr_left(Z)
+            H = enc(Z)
 
         if result_T != T:
             raise ValueError('Your protected data is not correct. Decryption declined')
 
         nonce_to_encrypt = int(('0' + nonce), 2)
         nonce_to_encrypt = int_to_bytes(nonce_to_encrypt)
-        gammas = []
+        gamma = enc(nonce_to_encrypt)
         plaintext = b''
 
         for i in range(0, len(ciphertext), n // 8):
-            if not gammas:
-                gammas.append(enc(nonce_to_encrypt))
-            else:
-                gammas.append(incr_right(gammas[-1]))
             curr_block_ciphertext = ciphertext[i:i + n // 8]
             len_curr_block_ciphertext = len(curr_block_ciphertext)
             plaintext += int_to_bytes(
-                bytes_to_int(enc(gammas[-1])[:len_curr_block_ciphertext]) ^ bytes_to_int(curr_block_ciphertext),
+                bytes_to_int(enc(gamma)[:len_curr_block_ciphertext]) ^ bytes_to_int(curr_block_ciphertext),
                 len(curr_block_ciphertext)
             )
+            gamma = incr_right(gamma)
 
         return plaintext, protected_data
     # PRIVATE METHODS. Used only in BlowCrypt class algorithm and not beyond
@@ -628,157 +601,6 @@ class BlowCrypt:
     def _hex_to_int(n):
         return int(n, 16)
 
-
-def hex_to_bytes(n):
-    res = b''
-    for i in range(0, len(n), 2):
-        res += int(n[i:i+2], 16).to_bytes(1)
-    return res
-
-
-def bytes_to_hex(n):
-    res = ''
-    for i in n:
-        res += hex(i)[2:].rjust(2, '0')
-    return res
-
-
-def ets_crypt(encr_obj, b_file, file_directory):
-    e_or_d = input(
-        'Choose whether you want to encrypt or decrypt this file: \n'
-        '1. Encrypt; \n'
-        '2. Decrypt. \n'
-        'Your choose is: ')
-    if e_or_d == '1':
-        encr_byte = b''.join(encr_obj.encrypt_ets(b_file))
-        print('Your encrypted file is: ', encr_byte, sep='\n')
-        with open(file_directory, 'wb') as file:
-            file.write(encr_byte)
-            print('This file was encrypted. Check it out!')
-    elif e_or_d == '2':
-        decr_byte = b''.join(encr_obj.decrypt_ets(b_file))
-        if not decr_byte:
-            print('Your decrypted file is: ', decr_byte, sep='\n')
-            with open(file_directory, 'wb') as file:
-                file.write(decr_byte)
-                print('This file was decrypted. Check it out!')
-            return
-        while decr_byte[0] == 0:
-            decr_byte = decr_byte[1:]
-            if not decr_byte:
-                decr_byte = int(0).to_bytes(1)
-                break
-        print('Your decrypted file is: ', decr_byte, sep='\n')
-        with open(file_directory, 'wb') as file:
-            file.write(decr_byte)
-            print('This file was decrypted. Check it out!')
-    else:
-        print('There is no such option')
-
-
-def cbc_crypt(encr_obj, b_file, file_directory):
-    e_or_d = input(
-        'Choose whether you want to encrypt or decrypt this file: \n'
-        '1. Encrypt; \n'
-        '2. Decrypt. \n'
-        'Your choose is: ')
-    if e_or_d == '1':
-        iv = input('Enter initializing vector for CBC-mode encryption: ').encode()[:8]
-        iv = int(0).to_bytes(1) * (8 - len(iv)) + iv
-        encr_byte = b''.join(encr_obj.encrypt_cbc(b_file, iv))
-        print('Your encrypted file is: ', encr_byte, sep='\n')
-        with open(file_directory, 'wb') as file:
-            file.write(encr_byte)
-            print('This file was encrypted. Check it out!')
-    elif e_or_d == '2':
-        iv = input('Enter initializing vector for CBC-mode decryption: ').encode()[:8]
-        iv = int(0).to_bytes(1) * (8 - len(iv)) + iv
-        decr_byte = b''.join(encr_obj.decrypt_cbc(b_file, iv))
-        if not decr_byte:
-            print('Your decrypted file is: ', decr_byte, sep='\n')
-            with open(file_directory, 'wb') as file:
-                file.write(decr_byte)
-                print('This file was decrypted. Check it out!')
-            return
-        while decr_byte[0] == 0:
-            decr_byte = decr_byte[1:]
-            if not decr_byte:
-                decr_byte = int(0).to_bytes(1)
-                break
-        print('Your decrypted file is: ', decr_byte, sep='\n')
-        with open(file_directory, 'wb') as file:
-            file.write(decr_byte)
-            print('This file was decrypted. Check it out!')
-    else:
-        print('There is no such option')
-
-
-def mgm_crypt(encr_obj, b_file, file_directory):
-    e_or_d = input(
-        'Choose whether you want to encrypt or decrypt this file: \n'
-        '1. Encrypt; \n'
-        '2. Decrypt. \n'
-        'Your choose is: ')
-    if e_or_d == '1':
-        nonce = hex_to_bytes(input('Enter nonce vector (use heximal interpretation of bytes): '))
-        protected_data = input('Enter protected data: ').encode()
-        res = encr_obj.encrypt_mgm(nonce, b_file, protected_data)
-        print('Your encrypted file is: ', res[2], f'Encrypted using protected data {res[1]}',
-              f'Message authentication code: {bytes_to_hex(res[3])}, bytes: {res[3]}', sep='\n')
-        with open(file_directory, 'wb') as file:
-            file.write(res[2])
-            print('This file was encrypted. Check it out!')
-    elif e_or_d == '2':
-        nonce = hex_to_bytes(input('Enter nonce vector (use heximal interpretation of bytes): '))
-        protected_data = input('Enter protected data: ').encode()
-        mac = hex_to_bytes(input('Enter message authentication code (use heximal interpretation of bytes): '))
-        res = encr_obj.decrypt_mgm(nonce, b_file, protected_data, mac)
-        print('Your decrypted file is: ', res[1], 'Message authentication code accepted', f'Protected data used while decryption: {res[0]}',sep='\n')
-        with open(file_directory, 'wb') as file:
-            file.write(res[0])
-            print('This file was decrypted. Check it out!')
-        return
-    else:
-        print('There is no such option')
-
-def main():
-    file_directory = input('Enter file directory (related or absolute): ')
-    try:
-        with open(file_directory, 'rb') as byte_f:
-            byte_file = byte_f.read()
-    except:
-        raise FileNotFoundError('File was not found')
-
-    print(len(byte_file))
-    mode = input('Choose mode of encrypting: \n'
-                 '1. ETS mode; \n'
-                 '2. CBC mode; \n'
-                 '3. MGM mode; \n'
-                 'Your choose is: ')
-    while True:
-        key = input('Enter key to cipher (string type is preferable): ').encode()
-        if len(key) < 4:
-            print('Your key is less than 4 bytes long')
-            continue
-        elif len(key) > 56:
-            print('Your key is more than 56 bytes long, algorithm will cut it')
-            key = key[:56]
-        break
-
-    if len(byte_file) % 8 != 0:
-        byte_file = int(0).to_bytes(1) * (8 - (len(byte_file) % 8)) + byte_file
-
-    EncryptObject = BlowCrypt(key)
-    if mode == '1':
-        ets_crypt(EncryptObject, byte_file, file_directory)
-    elif mode == '2':
-        cbc_crypt(EncryptObject, byte_file, file_directory)
-    elif mode == '3':
-        mgm_crypt(EncryptObject, byte_file, file_directory)
-    else:
-        print('There is no such option')
-    return
-
-
-if __name__ == "__main__":
-    main()
+    @staticmethod
+    def _bytes_to_hex(n):
+        return hex(int.from_bytes(n))[2:]
